@@ -664,8 +664,6 @@ class SOCKETS {
     }
 
     private:
-    static void drop_log(const char *, const char *, ...) {}
-
     inline bool handle_close(int descriptor) {
         bool success = true;
 
