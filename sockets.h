@@ -48,38 +48,40 @@ class SOCKETS {
     SOCKETS() : log_callback(nullptr) {}
     ~SOCKETS() {}
 
-    inline bool init(const std::function<void(const char *)>& log_cb = nullptr);
-    inline bool deinit();
+    bool init(const std::function<void(const char *)>& log_cb = nullptr);
+    bool deinit();
 
-    inline int listen_ipv6(const char *port, bool exposed);
-    inline int listen_ipv4(const char *port, bool exposed);
-    inline int listen_any(const char *port, bool exposed);
-    inline int listen(const char *port, bool exposed =true);
-    inline int next_connection();
-    inline int next_disconnection();
-    inline int next_incoming();
-    inline bool is_listener(int descriptor) const;
-    inline int get_group(int descriptor) const;
-    inline size_t get_group_size(int group) const;
-    inline int get_listener(int descriptor) const;
-    inline const char *get_host(int descriptor) const;
-    inline const char *get_port(int descriptor) const;
-    inline void freeze(int descriptor);
-    inline void unfreeze(int descriptor);
-    inline bool is_frozen(int descriptor) const;
-    inline bool idle() const;
-    inline bool connect(const char *host, const char *port, int group =0);
-    inline void disconnect(
+    int listen_ipv6(const char *port, bool exposed);
+    int listen_ipv4(const char *port, bool exposed);
+    int listen_any(const char *port, bool exposed);
+    int listen(const char *port, bool exposed =true);
+
+    bool connect(const char *host, const char *port, int group =0);
+    void disconnect(
         int descriptor,
         const char *file =__builtin_FILE(), int line =__builtin_LINE()
     );
-    inline bool swap_incoming(int descriptor, std::vector<uint8_t> &bytes);
-    inline bool swap_outgoing(int descriptor, std::vector<uint8_t> &bytes);
-    inline bool append_outgoing(
-        int descriptor, const std::vector<uint8_t> &bytes
-    );
-    inline bool serve(int timeout =-1);
-    inline void writef(
+
+    int next_connection();
+    int next_disconnection();
+    int next_incoming();
+
+    bool is_listener(int descriptor) const;
+    int get_group(int descriptor) const;
+    size_t get_group_size(int group) const;
+    int get_listener(int descriptor) const;
+    const char *get_host(int descriptor) const;
+    const char *get_port(int descriptor) const;
+    void freeze(int descriptor);
+    void unfreeze(int descriptor);
+    bool is_frozen(int descriptor) const;
+    bool idle() const;
+
+    bool swap_incoming(int descriptor, std::vector<uint8_t> &bytes);
+    bool swap_outgoing(int descriptor, std::vector<uint8_t> &bytes);
+    bool append_outgoing(int descriptor, const std::vector<uint8_t> &bytes);
+    bool serve(int timeout =-1);
+    void writef(
         int descriptor, const char *fmt, ...
     ) __attribute__((format(printf, 3, 4)));
     void log(const char *fmt, ...) const __attribute__((format(printf, 2, 3)));
@@ -133,28 +135,30 @@ class SOCKETS {
         int descriptor =NO_DESCRIPTOR, FLAG index =FLAG::NONE
     );
 
-    inline bool handle_close(int descriptor);
-    inline bool handle_epoll(int epoll_descriptor, int timeout);
-    inline bool handle_read(int descriptor);
-    inline bool handle_write(int descriptor);
-    inline bool handle_accept(int descriptor);
-    inline int connect(
-        const char *host, const char *port, int group, int family
-    );
-    inline int listen(const char *port, int family, int ai_flags =AI_PASSIVE);
-    inline int create_epoll();
-    inline bool bind_to_epoll(int descriptor, int epoll_descriptor);
-    inline int open_and_init(
-        const char *host, const char *port, int family, int ai_flags =AI_PASSIVE
-    );
-    inline size_t close_and_deinit(int descriptor);
-    inline void push(record_type record);
-    inline record_type pop(int descriptor);
-    inline const record_type *find_record(int descriptor) const;
-    inline record_type *find_record(int descriptor);
-    inline const record_type *find_epoll_record() const;
-    inline record_type *find_epoll_record();
+    bool handle_close(int descriptor);
+    bool handle_epoll(int epoll_descriptor, int timeout);
+    bool handle_read(int descriptor);
+    bool handle_write(int descriptor);
+    bool handle_accept(int descriptor);
+
+    int connect(const char *host, const char *port, int group, int family);
+    int listen(const char *port, int family, int ai_flags =AI_PASSIVE);
+
+    int create_epoll();
+    bool bind_to_epoll(int descriptor, int epoll_descriptor);
     bool modify_epoll(int descriptor, uint32_t events);
+
+    int open_and_init(const char *host, const char *port, int family, int flgs);
+    size_t close_and_deinit(int descriptor);
+
+    void push(record_type record);
+    record_type pop(int descriptor);
+
+    const record_type *find_record(int descriptor) const;
+    record_type *find_record(int descriptor);
+    const record_type *find_epoll_record() const;
+    record_type *find_epoll_record();
+
     bool set_group(int descriptor, int group);
     bool rem_group(int descriptor);
     bool set_flag(int descriptor, FLAG flag, bool value =true);

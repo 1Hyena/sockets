@@ -12,7 +12,7 @@ int main(int argc, char **argv) {
         }
     );
 
-    int tcp_listener = sockets.listen("4000", false);
+    int tcp_listener = sockets.listen("4000");
 
     if (tcp_listener != SOCKETS::NO_DESCRIPTOR) {
         constexpr int timeout_milliseconds = 3000;
