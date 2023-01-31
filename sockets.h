@@ -45,56 +45,6 @@ class SOCKETS {
     static const int EPOLL_MAX_EVENTS = 64;
     static const int NO_DESCRIPTOR = -1;
 
-    enum class FLAG : uint8_t {
-        NONE           =  0,
-        TIMEOUT        =  1,
-        // Do not change the order of the flags above this line.
-        RECONNECT      =  2,
-        READ           =  3,
-        WRITE          =  4,
-        ACCEPT         =  5,
-        NEW_CONNECTION =  6,
-        DISCONNECT     =  7,
-        CLOSE          =  8,
-        INCOMING       =  9,
-        FROZEN         = 10,
-        MAY_SHUTDOWN   = 11,
-        LISTENER       = 12,
-        CONNECTING     = 13,
-        TRIED_IPV4     = 14,
-        TRIED_IPV6     = 15,
-        // Do not change the order of the flags below this line.
-        EPOLL          = 16,
-        MAX_FLAGS      = 17
-    };
-
-    private:
-    struct record_type {
-        std::array<uint32_t, static_cast<size_t>(FLAG::MAX_FLAGS)> flags;
-        epoll_event *events;
-        std::vector<uint8_t> *incoming;
-        std::vector<uint8_t> *outgoing;
-        std::array<char, NI_MAXHOST> host;
-        std::array<char, NI_MAXSERV> port;
-        int descriptor;
-        int parent;
-        int group;
-    };
-
-    struct flag_type {
-        int descriptor;
-        FLAG index;
-    };
-
-    inline static constexpr record_type make_record(
-        int descriptor, int parent, int group
-    );
-
-    inline static constexpr flag_type make_flag(
-        int descriptor =NO_DESCRIPTOR, FLAG index =FLAG::NONE
-    );
-
-    public:
     SOCKETS() : log_callback(nullptr) {}
     ~SOCKETS() {}
 
@@ -135,6 +85,54 @@ class SOCKETS {
     void log(const char *fmt, ...) const __attribute__((format(printf, 2, 3)));
 
     private:
+    enum class FLAG : uint8_t {
+        NONE           =  0,
+        TIMEOUT        =  1,
+        // Do not change the order of the flags above this line.
+        RECONNECT      =  2,
+        READ           =  3,
+        WRITE          =  4,
+        ACCEPT         =  5,
+        NEW_CONNECTION =  6,
+        DISCONNECT     =  7,
+        CLOSE          =  8,
+        INCOMING       =  9,
+        FROZEN         = 10,
+        MAY_SHUTDOWN   = 11,
+        LISTENER       = 12,
+        CONNECTING     = 13,
+        TRIED_IPV4     = 14,
+        TRIED_IPV6     = 15,
+        // Do not change the order of the flags below this line.
+        EPOLL          = 16,
+        MAX_FLAGS      = 17
+    };
+
+    struct record_type {
+        std::array<uint32_t, static_cast<size_t>(FLAG::MAX_FLAGS)> flags;
+        epoll_event *events;
+        std::vector<uint8_t> *incoming;
+        std::vector<uint8_t> *outgoing;
+        std::array<char, NI_MAXHOST> host;
+        std::array<char, NI_MAXSERV> port;
+        int descriptor;
+        int parent;
+        int group;
+    };
+
+    struct flag_type {
+        int descriptor;
+        FLAG index;
+    };
+
+    inline static constexpr record_type make_record(
+        int descriptor, int parent, int group
+    );
+
+    inline static constexpr flag_type make_flag(
+        int descriptor =NO_DESCRIPTOR, FLAG index =FLAG::NONE
+    );
+
     inline bool handle_close(int descriptor);
     inline bool handle_epoll(int epoll_descriptor, int timeout);
     inline bool handle_read(int descriptor);
