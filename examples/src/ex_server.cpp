@@ -6,11 +6,19 @@ static void handle(SOCKETS &sockets);
 int main(int argc, char **argv) {
     SOCKETS sockets;
 
-    sockets.init(
-        [&](const char *txt){
-            printf("Sockets: %s\n", txt);
-        }
-    );
+    printf("Initializing networking using SOCKETS v%s.\n", SOCKETS::VERSION);
+
+    bool success{
+        sockets.init(
+            [&](const char *txt) {
+                printf("Sockets: %s\n", txt);
+            }
+        )
+    };
+
+    if (!success) {
+        return EXIT_FAILURE;
+    }
 
     int tcp_listener = sockets.listen("4000");
 

@@ -42,6 +42,7 @@
 
 class SOCKETS {
     public:
+    static constexpr const char *VERSION = "1.0";
     static const int EPOLL_MAX_EVENTS = 64;
     static const int NO_DESCRIPTOR = -1;
 
