@@ -4,7 +4,9 @@
 static void handle(SOCKETS &sockets);
 
 int main(int argc, char **argv) {
+    static constexpr const char *SERVER_HOST = "127.0.0.1";
     static constexpr const char *SERVER_PORT = "4000";
+
     SOCKETS sockets;
 
     printf("Initializing networking using SOCKETS v%s.\n", SOCKETS::VERSION);
@@ -21,15 +23,13 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
-    int tcp_listener = sockets.listen(SERVER_PORT);
-
-    if (tcp_listener != SOCKETS::NO_DESCRIPTOR) {
+    if (!sockets.connect(SERVER_HOST, SERVER_PORT)) {
+        printf("Failed to connect to %s:%s.\n", SERVER_HOST, SERVER_PORT);
+    }
+    else {
         constexpr int timeout_milliseconds = 3000;
 
-        printf(
-            "Listening for TCP connections on %s:%s.\n",
-            sockets.get_host(tcp_listener), sockets.get_port(tcp_listener)
-        );
+        printf("%s\n", "Waiting for TCP connection events.");
 
         while (sockets.serve(timeout_milliseconds)) {
             if (sockets.idle()) {
@@ -43,8 +43,7 @@ int main(int argc, char **argv) {
             }
         }
 
-        printf("%s", "Error serving the sockets.\n");
-        sockets.disconnect(tcp_listener);
+        printf("%s\n", "Error serving the sockets.");
     }
 
     sockets.deinit();
@@ -64,25 +63,24 @@ static void handle(SOCKETS &sockets) {
 
     while ((d = sockets.next_connection()) != SOCKETS::NO_DESCRIPTOR) {
         printf(
-            "New connection from %s:%s (descriptor %d).\n",
+            "New connection to %s:%s (descriptor %d).\n",
             sockets.get_host(d), sockets.get_port(d), d
         );
-
-        sockets.writef(d, "Hello, %d!\n\r", d);
     }
 
-    std::vector<uint8_t> buffer;
+    std::vector<uint8_t> buf;
 
     while ((d = sockets.next_incoming()) != SOCKETS::NO_DESCRIPTOR) {
-        sockets.swap_incoming(d, buffer);
+        sockets.swap_incoming(d, buf);
 
-        printf(
-            "Received %lu byte%s from descriptor %d.\n",
-            buffer.size(), buffer.size() == 1 ? "" : "s", d
-        );
+        while (!buf.empty() && (buf.back() == '\n' || buf.back() == '\r')) {
+            buf.pop_back();
+        }
 
-        sockets.append_outgoing(d, buffer);
+        buf.push_back(0);
 
-        buffer.clear();
+        printf("Descriptor %d says: '%s'\n", d, (const char *) buf.data());
+
+        buf.clear();
     }
 }
