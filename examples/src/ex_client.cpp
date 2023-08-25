@@ -4,7 +4,7 @@
 static void handle(SOCKETS &sockets);
 
 int main(int argc, char **argv) {
-    static constexpr const char *SERVER_HOST = "127.0.0.1";
+    static constexpr const char *SERVER_HOST = "localhost";
     static constexpr const char *SERVER_PORT = "4000";
 
     SOCKETS sockets;

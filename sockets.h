@@ -86,6 +86,8 @@ class SOCKETS {
         int descriptor, const char *fmt, ...
     ) __attribute__((format(printf, 3, 4)));
     void log(const char *fmt, ...) const __attribute__((format(printf, 2, 3)));
+    void bug(const char *f =__builtin_FILE(), int l =__builtin_LINE()) const;
+    void die(const char *f =__builtin_FILE(), int l =__builtin_LINE()) const;
 
     private:
     enum class FLAG : uint8_t {
@@ -104,11 +106,9 @@ class SOCKETS {
         MAY_SHUTDOWN   = 11,
         LISTENER       = 12,
         CONNECTING     = 13,
-        TRIED_IPV4     = 14,
-        TRIED_IPV6     = 15,
         // Do not change the order of the flags below this line.
-        EPOLL          = 16,
-        MAX_FLAGS      = 17
+        EPOLL          = 14,
+        MAX_FLAGS      = 15
     };
 
     struct record_type {
@@ -121,6 +121,9 @@ class SOCKETS {
         int descriptor;
         int parent;
         int group;
+        int ai_family;
+        int ai_flags;
+        struct addrinfo *blacklist;
     };
 
     struct flag_type {
@@ -136,20 +139,31 @@ class SOCKETS {
         int descriptor =NO_DESCRIPTOR, FLAG index =FLAG::NONE
     );
 
+    inline static bool is_listed(const addrinfo &info, const addrinfo *list);
+
     bool handle_close(int descriptor);
     bool handle_epoll(int epoll_descriptor, int timeout);
     bool handle_read(int descriptor);
     bool handle_write(int descriptor);
     bool handle_accept(int descriptor);
 
-    int connect(const char *host, const char *port, int group, int family);
-    int listen(const char *port, int family, int ai_flags =AI_PASSIVE);
+    int connect(
+        const char *host, const char *port, int group, int family, int flags,
+        const struct addrinfo *blacklist =nullptr,
+        const char *file =__builtin_FILE(), int line =__builtin_LINE()
+    );
+    int listen(const char *port, int family, int flags);
 
     int create_epoll();
     bool bind_to_epoll(int descriptor, int epoll_descriptor);
     bool modify_epoll(int descriptor, uint32_t events);
 
-    int open_and_init(const char *host, const char *port, int family, int flgs);
+    int open_and_init(
+        const char *host, const char *port, int family, int flags,
+        const struct addrinfo *blacklist =nullptr,
+        const char *file =__builtin_FILE(), int line =__builtin_LINE()
+    );
+
     size_t close_and_deinit(int descriptor);
 
     void push(record_type record);
@@ -159,6 +173,8 @@ class SOCKETS {
     record_type *find_record(int descriptor);
     const record_type *find_epoll_record() const;
     record_type *find_epoll_record();
+    const record_type &get_record(int descriptor) const;
+    record_type &get_record(int descriptor);
 
     bool set_group(int descriptor, int group);
     bool rem_group(int descriptor);
@@ -364,7 +380,7 @@ bool SOCKETS::idle() const {
 }
 
 bool SOCKETS::connect(const char *host, const char *port, int group) {
-    int descriptor = connect(host, port, group, AF_UNSPEC);
+    int descriptor = connect(host, port, group, AF_UNSPEC, 0);
 
     return descriptor != NO_DESCRIPTOR;
 }
@@ -485,8 +501,6 @@ bool SOCKETS::serve(int timeout) {
 
         switch (flag) {
             case FLAG::RECONNECT:
-            case FLAG::TRIED_IPV4:
-            case FLAG::TRIED_IPV6:
             case FLAG::LISTENER:
             case FLAG::FROZEN:
             case FLAG::INCOMING:
@@ -705,39 +719,51 @@ void SOCKETS::log(const char *fmt, ...) const {
     if (bufptr && bufptr != stackbuf) delete [] bufptr;
 }
 
+void SOCKETS::bug(const char *file, int line) const {
+    log("Forbidden condition met in %s on line %d.", file, line);
+}
+
+void SOCKETS::die(const char *file, int line) const {
+    bug(file, line);
+    fflush(nullptr);
+    raise(SIGSEGV);
+}
+
 bool SOCKETS::handle_close(int descriptor) {
-    bool success = true;
-
     if (has_flag(descriptor, FLAG::RECONNECT)) {
-        int family = AF_UNSPEC;
+        record_type &rec = get_record(descriptor);
 
-        if (!has_flag(descriptor, FLAG::TRIED_IPV4)) {
-            family = AF_INET;
+        int new_descriptor = connect(
+            get_host(descriptor), get_port(descriptor),
+            get_group(descriptor), rec.ai_family, rec.ai_flags, rec.blacklist
+        );
+
+        if (new_descriptor == NO_DESCRIPTOR) {
+            rem_flag(descriptor, FLAG::RECONNECT);
         }
-        else if (!has_flag(descriptor, FLAG::TRIED_IPV6)) {
-            family = AF_INET6;
-        }
+        else {
+            record_type &new_rec = get_record(new_descriptor);
 
-        if (family != AF_UNSPEC) {
-            int group = get_group(descriptor);
+            struct addrinfo *blacklist = new_rec.blacklist;
 
-            int new_descriptor = connect(
-                get_host(descriptor), get_port(descriptor), group, family
-            );
-
-            if (new_descriptor != NO_DESCRIPTOR) {
-                if (has_flag(descriptor, FLAG::TRIED_IPV4)) {
-                    set_flag(new_descriptor, FLAG::TRIED_IPV4);
-                }
-
-                if (has_flag(descriptor, FLAG::TRIED_IPV6)) {
-                    set_flag(new_descriptor, FLAG::TRIED_IPV6);
+            if (!blacklist) {
+                blacklist = rec.blacklist;
+                rec.blacklist = nullptr;
+            }
+            else {
+                for (;; blacklist = blacklist->ai_next) {
+                    if (blacklist->ai_next == nullptr) {
+                        blacklist->ai_next = rec.blacklist;
+                        rec.blacklist = nullptr;
+                        break;
+                    }
                 }
             }
-            else success = false;
         }
     }
-    else if (has_flag(descriptor, FLAG::CONNECTING)) {
+
+    if (has_flag(descriptor, FLAG::CONNECTING)
+    && !has_flag(descriptor, FLAG::RECONNECT)) {
         log(
             "Failed to connect to %s:%s.",
             get_host(descriptor), get_port(descriptor)
@@ -749,7 +775,7 @@ bool SOCKETS::handle_close(int descriptor) {
         return false;
     }
 
-    return success;
+    return true;
 }
 
 bool SOCKETS::handle_epoll(int epoll_descriptor, int timeout) {
@@ -767,8 +793,8 @@ bool SOCKETS::handle_epoll(int epoll_descriptor, int timeout) {
         }
     }
 
-    record_type *record = find_record(epoll_descriptor);
-    epoll_event *events = &(record->events[1]);
+    record_type &record = get_record(epoll_descriptor);
+    epoll_event *events = &(record.events[1]);
 
     int pending = epoll_pwait(
         epoll_descriptor, events, EPOLL_MAX_EVENTS, timeout, &sigset_none
@@ -838,11 +864,7 @@ bool SOCKETS::handle_epoll(int epoll_descriptor, int timeout) {
                         }
                         case ECONNREFUSED: {
                             if (has_flag(d, FLAG::CONNECTING)) {
-                                if (!has_flag(d, FLAG::TRIED_IPV4)
-                                ||  !has_flag(d, FLAG::TRIED_IPV6)) {
-                                    set_flag(d, FLAG::RECONNECT);
-                                }
-
+                                set_flag(d, FLAG::RECONNECT);
                                 break;
                             }
                         } // fall through
@@ -890,7 +912,7 @@ bool SOCKETS::handle_epoll(int epoll_descriptor, int timeout) {
 }
 
 bool SOCKETS::handle_read(int descriptor) {
-    record_type *record = find_record(descriptor);
+    record_type &record = get_record(descriptor);
 
     while (1) {
         ssize_t count;
@@ -926,7 +948,7 @@ bool SOCKETS::handle_read(int descriptor) {
             break;
         }
 
-        record->incoming->insert(record->incoming->end(), buf, buf+count);
+        record.incoming->insert(record.incoming->end(), buf, buf+count);
         set_flag(descriptor, FLAG::READ);
         set_flag(descriptor, FLAG::INCOMING);
 
@@ -947,9 +969,9 @@ bool SOCKETS::handle_write(int descriptor) {
         modify_epoll(descriptor, EPOLLIN|EPOLLET|EPOLLRDHUP);
     }
 
-    record_type *record = find_record(descriptor);
+    record_type &record = get_record(descriptor);
 
-    std::vector<uint8_t> *outgoing = record->outgoing;
+    std::vector<uint8_t> *outgoing = record.outgoing;
 
     if (outgoing->empty()) {
         return true;
@@ -1100,13 +1122,13 @@ bool SOCKETS::handle_accept(int descriptor) {
 
     push(make_record(client_descriptor, descriptor, 0));
 
-    record_type *client_record = find_record(client_descriptor);
+    record_type &client_record = get_record(client_descriptor);
 
-    client_record->incoming = new (std::nothrow) std::vector<uint8_t>;
-    client_record->outgoing = new (std::nothrow) std::vector<uint8_t>;
+    client_record.incoming = new (std::nothrow) std::vector<uint8_t>;
+    client_record.outgoing = new (std::nothrow) std::vector<uint8_t>;
 
-    if (!client_record->incoming
-    ||  !client_record->outgoing) {
+    if (!client_record.incoming
+    ||  !client_record.outgoing) {
         log(
             "new: out of memory (%s:%d)", __FILE__, __LINE__
         );
@@ -1120,8 +1142,8 @@ bool SOCKETS::handle_accept(int descriptor) {
 
     int retval = getnameinfo(
         &in_addr, in_len,
-        client_record->host.data(), socklen_t(client_record->host.size()),
-        client_record->port.data(), socklen_t(client_record->port.size()),
+        client_record.host.data(), socklen_t(client_record.host.size()),
+        client_record.port.data(), socklen_t(client_record.port.size()),
         NI_NUMERICHOST|NI_NUMERICSERV
     );
 
@@ -1131,8 +1153,8 @@ bool SOCKETS::handle_accept(int descriptor) {
             __FILE__, __LINE__
         );
 
-        client_record->host[0] = '\0';
-        client_record->port[0] = '\0';
+        client_record.host[0] = '\0';
+        client_record.port[0] = '\0';
     }
 
     epoll_event *event = &(epoll_record->events[0]);
@@ -1176,7 +1198,8 @@ bool SOCKETS::handle_accept(int descriptor) {
 }
 
 int SOCKETS::connect(
-    const char *host, const char *port, int group, int family
+    const char *host, const char *port, int group, int ai_family, int ai_flags,
+    const struct addrinfo *blacklist, const char *file, int line
 ) {
     int epoll_descriptor = NO_DESCRIPTOR;
     record_type *epoll_record = find_epoll_record();
@@ -1211,7 +1234,11 @@ int SOCKETS::connect(
         return NO_DESCRIPTOR;
     }
 
-    int descriptor = open_and_init(host, port, family, AI_PASSIVE);
+    int descriptor{
+        open_and_init(
+            host, port, ai_family, ai_flags, blacklist, file, line
+        )
+    };
 
     if (descriptor == NO_DESCRIPTOR) {
         delete incoming;
@@ -1221,19 +1248,19 @@ int SOCKETS::connect(
 
     set_group(descriptor, group);
 
-    record_type *record = find_record(descriptor);
+    record_type &record = get_record(descriptor);
 
-    record->incoming = incoming;
-    record->outgoing = outgoing;
+    record.incoming = incoming;
+    record.outgoing = outgoing;
 
-    if (record->host.front() == '\0') {
-        strncpy(record->host.data(), host, record->host.size()-1);
-        record->host.back() = '\0';
+    if (record.host.front() == '\0') {
+        strncpy(record.host.data(), host, record.host.size()-1);
+        record.host.back() = '\0';
     }
 
-    if (record->port.front() == '\0') {
-        strncpy(record->port.data(), port, record->port.size()-1);
-        record->port.back() = '\0';
+    if (record.port.front() == '\0') {
+        strncpy(record.port.data(), port, record.port.size()-1);
+        record.port.back() = '\0';
     }
 
     if (!bind_to_epoll(descriptor, epoll_descriptor)) {
@@ -1255,7 +1282,7 @@ int SOCKETS::connect(
     return descriptor;
 }
 
-int SOCKETS::listen(const char *port, int family, int ai_flags) {
+int SOCKETS::listen(const char *port, int ai_family, int ai_flags) {
     int epoll_descriptor = NO_DESCRIPTOR;
     record_type *epoll_record = find_epoll_record();
 
@@ -1275,7 +1302,7 @@ int SOCKETS::listen(const char *port, int family, int ai_flags) {
         epoll_descriptor = epoll_record->descriptor;
     }
 
-    int descriptor = open_and_init(nullptr, port, family, ai_flags);
+    int descriptor = open_and_init(nullptr, port, ai_family, ai_flags);
 
     if (descriptor == NO_DESCRIPTOR) return NO_DESCRIPTOR;
 
@@ -1387,11 +1414,11 @@ int SOCKETS::create_epoll() {
 
     push(make_record(epoll_descriptor, NO_DESCRIPTOR, 0));
 
-    record_type *record = find_record(epoll_descriptor);
+    record_type &record = get_record(epoll_descriptor);
 
-    record->events = new (std::nothrow) epoll_event [1+EPOLL_MAX_EVENTS];
+    record.events = new (std::nothrow) epoll_event [1+EPOLL_MAX_EVENTS];
 
-    if (record->events == nullptr) {
+    if (record.events == nullptr) {
         log(
             "new: out of memory (%s:%d)", __FILE__, __LINE__
         );
@@ -1411,8 +1438,8 @@ int SOCKETS::create_epoll() {
 bool SOCKETS::bind_to_epoll(int descriptor, int epoll_descriptor) {
     if (descriptor == NO_DESCRIPTOR) return NO_DESCRIPTOR;
 
-    record_type *record = find_record(epoll_descriptor);
-    epoll_event *event = &(record->events[0]);
+    record_type &record = get_record(epoll_descriptor);
+    epoll_event *event = &(record.events[0]);
 
     event->data.fd = descriptor;
     event->events = EPOLLIN|EPOLLET|EPOLLRDHUP;
@@ -1443,7 +1470,8 @@ bool SOCKETS::bind_to_epoll(int descriptor, int epoll_descriptor) {
 }
 
 int SOCKETS::open_and_init(
-    const char *host, const char *port, int family, int ai_flags
+    const char *host, const char *port, int ai_family, int ai_flags,
+    const struct addrinfo *blacklist, const char *file, int line
 ) {
     struct addrinfo hint =
 #if __cplusplus <= 201703L
@@ -1451,7 +1479,7 @@ int SOCKETS::open_and_init(
 #endif
     addrinfo{
         .ai_flags     = ai_flags,
-        .ai_family    = family,
+        .ai_family    = ai_family,
         .ai_socktype  = SOCK_STREAM,
         .ai_protocol  = 0,
         .ai_addrlen   = 0,
@@ -1460,20 +1488,23 @@ int SOCKETS::open_and_init(
         .ai_next      = nullptr
     };
     struct addrinfo *info = nullptr;
+    struct addrinfo *next = nullptr;
+    struct addrinfo *prev = nullptr;
 
     int descriptor = NO_DESCRIPTOR;
     int retval = getaddrinfo(host, port, &hint, &info);
 
     if (retval != 0) {
-        log(
-            "getaddrinfo: %s (%s:%d)", gai_strerror(retval),
-            __FILE__, __LINE__
-        );
+        log("getaddrinfo: %s (%s:%d)", gai_strerror(retval), file, line);
 
         goto CleanUp;
     }
 
-    for (struct addrinfo *next = info; next; next = next->ai_next) {
+    for (next = info; next; prev = next, next = next->ai_next) {
+        if (is_listed(*next, blacklist)) {
+            continue;
+        }
+
         descriptor = socket(
             next->ai_family,
             next->ai_socktype|SOCK_NONBLOCK|SOCK_CLOEXEC,
@@ -1492,8 +1523,14 @@ int SOCKETS::open_and_init(
 
         push(make_record(descriptor, NO_DESCRIPTOR, 0));
 
+        record_type &rec = get_record(descriptor);
+
+        rec.ai_family = ai_family;
+        rec.ai_flags  = ai_flags;
+
         if (host == nullptr) {
             int optval = 1;
+
             retval = setsockopt(
                 descriptor, SOL_SOCKET, SO_REUSEADDR,
                 (const void *) &optval, sizeof(optval)
@@ -1559,9 +1596,7 @@ int SOCKETS::open_and_init(
             else {
                 bool success = false;
 
-                retval = ::connect(
-                    descriptor, next->ai_addr, next->ai_addrlen
-                );
+                retval = ::connect(descriptor, next->ai_addr, next->ai_addrlen);
 
                 if (retval) {
                     if (retval == -1) {
@@ -1571,12 +1606,15 @@ int SOCKETS::open_and_init(
                             success = true;
                             set_flag(descriptor, FLAG::CONNECTING);
 
-                            if (next->ai_family == AF_INET6) {
-                                set_flag(descriptor, FLAG::TRIED_IPV6);
+                            if (info == next) {
+                                info = next->ai_next;
                             }
-                            else if (next->ai_family == AF_INET) {
-                                set_flag(descriptor, FLAG::TRIED_IPV4);
+                            else {
+                                prev->ai_next = next->ai_next;
                             }
+
+                            next->ai_next = rec.blacklist;
+                            rec.blacklist = next;
                         }
                         else {
                             log(
@@ -1595,6 +1633,7 @@ int SOCKETS::open_and_init(
                 else success = true;
 
                 retval = sigprocmask(SIG_SETMASK, &sigset_orig, nullptr);
+
                 if (retval == -1) {
                     int code = errno;
                     log(
@@ -1813,6 +1852,10 @@ SOCKETS::record_type SOCKETS::pop(int descriptor) {
         if (rec.incoming) delete rec.incoming;
         if (rec.outgoing) delete rec.outgoing;
 
+        if (rec.blacklist) {
+            freeaddrinfo(rec.blacklist);
+        }
+
         rem_group(descriptor);
 
         // Finally, we remove the record.
@@ -1824,7 +1867,6 @@ SOCKETS::record_type SOCKETS::pop(int descriptor) {
 
     return make_record(NO_DESCRIPTOR, NO_DESCRIPTOR, 0);
 }
-
 
 const SOCKETS::record_type *SOCKETS::find_record(int descriptor) const {
     size_t key = descriptor % descriptors.size();
@@ -1868,6 +1910,22 @@ SOCKETS::record_type *SOCKETS::find_epoll_record() {
     return const_cast<record_type *>(
         static_cast<const SOCKETS &>(*this).find_epoll_record()
     );
+}
+
+const SOCKETS::record_type &SOCKETS::get_record(int descriptor) const {
+    const record_type *rec = find_record(descriptor);
+
+    if (!rec) die();
+
+    return *rec;
+}
+
+SOCKETS::record_type &SOCKETS::get_record(int descriptor) {
+    record_type *rec = find_record(descriptor);
+
+    if (!rec) die();
+
+    return *rec;
 }
 
 bool SOCKETS::modify_epoll(int descriptor, uint32_t events) {
@@ -1999,7 +2057,7 @@ bool SOCKETS::rem_flag(int descriptor, FLAG flag) {
         flags[index][pos] = flags[index].back();
 
         int other_descriptor = flags[index].back().descriptor;
-        find_record(other_descriptor)->flags[index] = pos;
+        get_record(other_descriptor).flags[index] = pos;
 
         flags[index].pop_back();
         rec->flags[index] = std::numeric_limits<uint32_t>::max();
@@ -2044,7 +2102,10 @@ constexpr SOCKETS::record_type SOCKETS::make_record(
         .port       = {'\0'},
         .descriptor = descriptor,
         .parent     = parent,
-        .group      = group
+        .group      = group,
+        .ai_family  = 0,
+        .ai_flags   = 0,
+        .blacklist  = nullptr
     };
 
     for (size_t i = 0; i != record.flags.size(); ++i) {
@@ -2065,6 +2126,39 @@ constexpr SOCKETS::flag_type SOCKETS::make_flag(
         .descriptor = descriptor,
         .index      = index
     };
+}
+
+bool SOCKETS::is_listed(const addrinfo &info, const addrinfo *list) {
+    for (const struct addrinfo *next = list; next; next = next->ai_next) {
+        if (info.ai_flags != next->ai_flags
+        ||  info.ai_family != next->ai_family
+        ||  info.ai_socktype != next->ai_socktype
+        ||  info.ai_protocol != next->ai_protocol
+        ||  info.ai_addrlen != next->ai_addrlen) {
+            continue;
+        }
+
+        if ((info.ai_canonname && !next->ai_canonname)
+        ||  (next->ai_canonname && !info.ai_canonname)) {
+            continue;
+        }
+
+        if (info.ai_canonname && next->ai_canonname
+        && strcmp(info.ai_canonname, next->ai_canonname)) {
+            continue;
+        }
+
+        const void *first = (const void *) info.ai_addr;
+        const void *second = (const void *) next->ai_addr;
+
+        if (memcmp(first, second, (size_t) info.ai_addrlen) != 0) {
+            continue;
+        }
+
+        return true;
+    }
+
+    return false;
 }
 
 #endif
