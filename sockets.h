@@ -547,19 +547,6 @@ bool SOCKETS::serve(int timeout) {
                     }
 
                     if (handle_close(d)) {
-                        // If we were trying to connect to a server but the
-                        // attempt failed, then we must prevent the epoll
-                        // handler from waiting. It may very well be that no
-                        // event would ever be triggered, causing the epoll
-                        // handler to wait indefinitely. Instead, we should
-                        // immediately return the control back to the
-                        // caller.
-
-                        timeout = 0;
-                        // TODO: Find a better fix than setting the timeout
-                        // to zero. If we set it to zero, then we would get
-                        // unnecessary timeouts if clients disconnect.
-
                         continue;
                     }
 
