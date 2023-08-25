@@ -31,7 +31,8 @@ int main(int argc, char **argv) {
 
         printf("%s\n", "Waiting for TCP connection events.");
 
-        while (sockets.serve(timeout_milliseconds)) {
+        while (sockets.serve(/*timeout_milliseconds*/)) {
+            // TODO: Add a possibility to learn about refused connections.
             if (sockets.idle()) {
                 printf(
                     "Nothing happened in the last %d seconds.\n",
