@@ -30,7 +30,7 @@ int main(int argc, char **argv) {
     printf("%s\n", "Sleeping indefinitely.");
 
     if (!sockets.serve()) {
-        printf("%s", "Error serving the sockets.\n");
+        printf("%s\n", "Error serving the sockets.");
     }
 
     printf("%s\n", "Deinitializing networking.");
