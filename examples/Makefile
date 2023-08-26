@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 CC      = g++
 PROF    = -O3
-C_FLAGS = -std=c++14 -Wall -Wextra -pedantic-errors -Wconversion -Wno-unused-parameter -fmax-errors=5
+C_FLAGS = -std=c++17 -Wall -Wextra -pedantic-errors -Wconversion -Wno-unused-parameter -fmax-errors=5
 L_FLAGS = -lm -lstdc++
 SRC_DIR = src
 OUT_DIR = bin

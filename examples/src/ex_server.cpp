@@ -68,7 +68,9 @@ static void handle(SOCKETS &sockets) {
             sockets.get_host(d), sockets.get_port(d), d
         );
 
-        sockets.writef(d, "Hello, %d!\n\r", d);
+        sockets.writef(
+            d, "Hello, %s:%s!\n\r", sockets.get_host(d), sockets.get_port(d)
+        );
     }
 
     std::vector<uint8_t> buffer;

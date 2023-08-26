@@ -9,7 +9,7 @@ int main(int argc, char **argv) {
 
     SOCKETS sockets;
 
-    printf("Initializing networking using SOCKETS v%s.\n", SOCKETS::VERSION);
+    printf("Initializing networking (SOCKETS v%s).\n", SOCKETS::VERSION);
 
     bool success{
         sockets.init(
@@ -23,30 +23,59 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
-    if (!sockets.connect(SERVER_HOST, SERVER_PORT)) {
-        printf("Failed to connect to %s:%s.\n", SERVER_HOST, SERVER_PORT);
-    }
-    else {
+    printf("Connecting to %s:%s.\n", SERVER_HOST, SERVER_PORT);
+
+    if (sockets.connect(SERVER_HOST, SERVER_PORT)) {
         constexpr int timeout_milliseconds = 3000;
+        bool connected = false;
+        bool success;
+        int d;
 
-        printf("%s\n", "Waiting for TCP connection events.");
+        printf("%s\n", "Waiting for socket events.");
 
-        while (sockets.serve(/*timeout_milliseconds*/)) {
-            // TODO: Add a possibility to learn about refused connections.
+        while (true == (success = sockets.serve(timeout_milliseconds))) {
+            while ((d = sockets.next_connection()) != SOCKETS::NO_DESCRIPTOR) {
+                printf(
+                    "Connected to %s:%s.\n",
+                    sockets.get_host(d), sockets.get_port(d)
+                );
+
+                connected = true;
+                sockets.writef(d, "%s", "Ahoy!\n");
+            }
+
+            if ((d = sockets.next_disconnection()) != SOCKETS::NO_DESCRIPTOR) {
+                if (connected) {
+                    printf(
+                        "Disconnected from %s:%s.\n",
+                        sockets.get_host(d), sockets.get_port(d)
+                    );
+
+                    goto TheEnd;
+                }
+                else break;
+            }
+
             if (sockets.idle()) {
                 printf(
                     "Nothing happened in the last %d seconds.\n",
                     timeout_milliseconds / 1000
                 );
             }
-            else {
-                handle(sockets);
-            }
+            else handle(sockets);
         }
 
-        printf("%s\n", "Error serving the sockets.");
+        if (!success) {
+            printf("%s\n", "Error serving the sockets.");
+            goto TheEnd;
+        }
     }
 
+    printf("Failed to connect to %s:%s.\n", SERVER_HOST, SERVER_PORT);
+
+    TheEnd:
+
+    printf("Deinitializing networking.\n");
     sockets.deinit();
 
     return EXIT_SUCCESS;
@@ -54,20 +83,6 @@ int main(int argc, char **argv) {
 
 static void handle(SOCKETS &sockets) {
     int d = SOCKETS::NO_DESCRIPTOR;
-
-    while ((d = sockets.next_disconnection()) != SOCKETS::NO_DESCRIPTOR) {
-        printf(
-            "Disconnected %s:%s (descriptor %d).\n",
-            sockets.get_host(d), sockets.get_port(d), d
-        );
-    }
-
-    while ((d = sockets.next_connection()) != SOCKETS::NO_DESCRIPTOR) {
-        printf(
-            "New connection to %s:%s (descriptor %d).\n",
-            sockets.get_host(d), sockets.get_port(d), d
-        );
-    }
 
     std::vector<uint8_t> buf;
 
@@ -80,7 +95,10 @@ static void handle(SOCKETS &sockets) {
 
         buf.push_back(0);
 
-        printf("Descriptor %d says: '%s'\n", d, (const char *) buf.data());
+        printf(
+            "%s:%s> %s\n",
+            sockets.get_host(d), sockets.get_port(d), (const char *) buf.data()
+        );
 
         buf.clear();
     }

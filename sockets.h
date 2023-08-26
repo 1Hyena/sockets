@@ -750,11 +750,16 @@ bool SOCKETS::handle_close(int descriptor) {
     }
 
     if (has_flag(descriptor, FLAG::CONNECTING)
-    && !has_flag(descriptor, FLAG::RECONNECT)) {
-        log(
-            "Failed to connect to %s:%s.",
-            get_host(descriptor), get_port(descriptor)
-        );
+    && !has_flag(descriptor, FLAG::RECONNECT)
+    && !has_flag(descriptor, FLAG::DISCONNECT)) {
+        // Here we postpone closing this descriptor because we first want to
+        // notify the user of this library of the connection that could not be
+        // established.
+
+        rem_flag(descriptor, FLAG::CONNECTING);
+        set_flag(descriptor, FLAG::DISCONNECT);
+
+        return true;
     }
 
     if (!close_and_deinit(descriptor)) {
@@ -766,7 +771,7 @@ bool SOCKETS::handle_close(int descriptor) {
 }
 
 bool SOCKETS::handle_epoll(int epoll_descriptor, int timeout) {
-    static constexpr const std::array<size_t, 4> blockers{
+    static constexpr const std::array blockers{
         static_cast<size_t>(FLAG::NEW_CONNECTION),
         static_cast<size_t>(FLAG::DISCONNECT),
         static_cast<size_t>(FLAG::INCOMING)
@@ -891,6 +896,13 @@ bool SOCKETS::handle_epoll(int epoll_descriptor, int timeout) {
 
             if (events[i].events & EPOLLOUT) {
                 set_flag(d, FLAG::WRITE);
+
+                if (has_flag(d, FLAG::CONNECTING)) {
+                    rem_flag(d, FLAG::CONNECTING);
+                    set_flag(d, FLAG::NEW_CONNECTION);
+                    set_flag(d, FLAG::MAY_SHUTDOWN);
+                    modify_epoll(d, EPOLLIN|EPOLLET|EPOLLRDHUP);
+                }
             }
         }
     }
@@ -949,13 +961,6 @@ bool SOCKETS::handle_read(int descriptor) {
 }
 
 bool SOCKETS::handle_write(int descriptor) {
-    if (has_flag(descriptor, FLAG::CONNECTING)) {
-        set_flag(descriptor, FLAG::MAY_SHUTDOWN);
-        rem_flag(descriptor, FLAG::CONNECTING);
-        set_flag(descriptor, FLAG::NEW_CONNECTION);
-        modify_epoll(descriptor, EPOLLIN|EPOLLET|EPOLLRDHUP);
-    }
-
     record_type &record = get_record(descriptor);
 
     std::vector<uint8_t> *outgoing = record.outgoing;
@@ -1460,6 +1465,9 @@ int SOCKETS::open_and_init(
     const char *host, const char *port, int ai_family, int ai_flags,
     const struct addrinfo *blacklist, const char *file, int line
 ) {
+    static constexpr const bool establish_nonblocking_connections = true;
+    const bool accept_incoming_connections = host == nullptr;
+
     struct addrinfo hint =
 #if __cplusplus <= 201703L
     __extension__
@@ -1492,18 +1500,27 @@ int SOCKETS::open_and_init(
             continue;
         }
 
-        descriptor = socket(
-            next->ai_family,
-            next->ai_socktype|SOCK_NONBLOCK|SOCK_CLOEXEC,
-            next->ai_protocol
-        );
+        if (accept_incoming_connections) {
+            descriptor = socket(
+                next->ai_family,
+                next->ai_socktype|SOCK_NONBLOCK|SOCK_CLOEXEC,
+                next->ai_protocol
+            );
+        }
+        else {
+            descriptor = socket(
+                next->ai_family,
+                next->ai_socktype|SOCK_CLOEXEC|(
+                    establish_nonblocking_connections ? SOCK_NONBLOCK : 0
+                ),
+                next->ai_protocol
+            );
+        }
 
         if (descriptor == -1) {
             int code = errno;
 
-            log(
-                "socket: %s (%s:%d)", strerror(code), __FILE__, __LINE__
-            );
+            log("socket: %s (%s:%d)", strerror(code), __FILE__, __LINE__);
 
             continue;
         }
@@ -1515,7 +1532,7 @@ int SOCKETS::open_and_init(
         rec.ai_family = ai_family;
         rec.ai_flags  = ai_flags;
 
-        if (host == nullptr) {
+        if (accept_incoming_connections) {
             int optval = 1;
 
             retval = setsockopt(
@@ -1603,7 +1620,7 @@ int SOCKETS::open_and_init(
                             next->ai_next = rec.blacklist;
                             rec.blacklist = next;
                         }
-                        else {
+                        else if (code != ECONNREFUSED) {
                             log(
                                 "connect: %s (%s:%d)", strerror(code),
                                 __FILE__, __LINE__
