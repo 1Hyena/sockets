@@ -58,10 +58,7 @@ class SOCKETS {
     int listen(const char *port, bool exposed =true);
 
     bool connect(const char *host, const char *port, int group =0);
-    void disconnect(
-        int descriptor,
-        const char *file =__builtin_FILE(), int line =__builtin_LINE()
-    );
+    void disconnect(int descriptor);
 
     int next_connection();
     int next_disconnection();
@@ -152,7 +149,14 @@ class SOCKETS {
         const struct addrinfo *blacklist =nullptr,
         const char *file =__builtin_FILE(), int line =__builtin_LINE()
     );
-    int listen(const char *port, int family, int flags);
+    int listen(
+        const char *port, int family, int flags,
+        const char *file =__builtin_FILE(), int line =__builtin_LINE()
+    );
+    void terminate(
+        int descriptor,
+        const char *file =__builtin_FILE(), int line =__builtin_LINE()
+    );
 
     int create_epoll();
     bool bind_to_epoll(int descriptor, int epoll_descriptor);
@@ -385,62 +389,8 @@ bool SOCKETS::connect(const char *host, const char *port, int group) {
     return descriptor != NO_DESCRIPTOR;
 }
 
-void SOCKETS::disconnect(int descriptor, const char *file, int line) {
-    if (descriptor == NO_DESCRIPTOR) return;
-
-    if (has_flag(descriptor, FLAG::CLOSE)
-    ||  has_flag(descriptor, FLAG::DISCONNECT)) {
-        return;
-    }
-
-    if (has_flag(descriptor, FLAG::RECONNECT)
-    ||  has_flag(descriptor, FLAG::CONNECTING)) {
-        set_flag(descriptor, FLAG::CLOSE);
-    }
-    else {
-        set_flag(descriptor, FLAG::DISCONNECT);
-    }
-
-    if (has_flag(descriptor, FLAG::MAY_SHUTDOWN)) {
-        rem_flag(descriptor, FLAG::MAY_SHUTDOWN);
-
-        if (has_flag(descriptor, FLAG::WRITE)
-        && !has_flag(descriptor, FLAG::CONNECTING)) {
-            // Let's handle writing here so that the descriptor would have a
-            // chance to receive any pending bytes before being shut down.
-            handle_write(descriptor);
-        }
-
-        int retval = shutdown(descriptor, SHUT_WR);
-        if (retval == -1) {
-            int code = errno;
-
-            log(
-                "shutdown(%d, SHUT_WR): %s (%s:%d)", descriptor,
-                strerror(code), file, line
-            );
-        }
-        else if (retval != 0) {
-            log(
-                "shutdown(%d, SHUT_WR): unexpected return value of %d "
-                "(%s:%d)", descriptor, retval, file, line
-            );
-        }
-    }
-
-    if (is_listener(descriptor)) {
-        for (size_t key=0; key<descriptors.size(); ++key) {
-            for (size_t i=0, sz=descriptors[key].size(); i<sz; ++i) {
-                const record_type &rec = descriptors[key][i];
-
-                if (rec.parent != descriptor) {
-                    continue;
-                }
-
-                disconnect(rec.descriptor, file, line);
-            }
-        }
-    }
+void SOCKETS::disconnect(int descriptor) {
+    terminate(descriptor);
 }
 
 bool SOCKETS::swap_incoming(int descriptor, std::vector<uint8_t> &bytes) {
@@ -608,7 +558,7 @@ bool SOCKETS::serve(int timeout) {
 }
 
 void SOCKETS::writef(int descriptor, const char *fmt, ...) {
-    char stackbuf[1024];
+    char stackbuf[1024]; // TODO: handle longer strings
 
     va_list args;
     va_start(args, fmt);
@@ -881,7 +831,7 @@ bool SOCKETS::handle_epoll(int epoll_descriptor, int timeout) {
             }
 
             rem_flag(d, FLAG::MAY_SHUTDOWN);
-            disconnect(d);
+            terminate(d);
 
             continue;
         }
@@ -955,7 +905,7 @@ bool SOCKETS::handle_read(int descriptor) {
     }
 
     rem_flag(descriptor, FLAG::MAY_SHUTDOWN);
-    disconnect(descriptor);
+    terminate(descriptor);
 
     return true;
 }
@@ -1274,12 +1224,72 @@ int SOCKETS::connect(
     return descriptor;
 }
 
-int SOCKETS::listen(const char *port, int ai_family, int ai_flags) {
+void SOCKETS::terminate(int descriptor, const char *file, int line) {
+    if (descriptor == NO_DESCRIPTOR) return;
+
+    if (has_flag(descriptor, FLAG::CLOSE)
+    ||  has_flag(descriptor, FLAG::DISCONNECT)) {
+        return;
+    }
+
+    if (has_flag(descriptor, FLAG::RECONNECT)
+    ||  has_flag(descriptor, FLAG::CONNECTING)) {
+        set_flag(descriptor, FLAG::CLOSE);
+    }
+    else {
+        set_flag(descriptor, FLAG::DISCONNECT);
+    }
+
+    if (has_flag(descriptor, FLAG::MAY_SHUTDOWN)) {
+        rem_flag(descriptor, FLAG::MAY_SHUTDOWN);
+
+        if (has_flag(descriptor, FLAG::WRITE)
+        && !has_flag(descriptor, FLAG::CONNECTING)) {
+            // Let's handle writing here so that the descriptor would have a
+            // chance to receive any pending bytes before being shut down.
+            handle_write(descriptor);
+        }
+
+        int retval = shutdown(descriptor, SHUT_WR);
+        if (retval == -1) {
+            int code = errno;
+
+            log(
+                "shutdown(%d, SHUT_WR): %s (%s:%d)", descriptor,
+                strerror(code), file, line
+            );
+        }
+        else if (retval != 0) {
+            log(
+                "shutdown(%d, SHUT_WR): unexpected return value of %d "
+                "(%s:%d)", descriptor, retval, file, line
+            );
+        }
+    }
+
+    if (is_listener(descriptor)) {
+        for (size_t key=0; key<descriptors.size(); ++key) {
+            for (size_t i=0, sz=descriptors[key].size(); i<sz; ++i) {
+                const record_type &rec = descriptors[key][i];
+
+                if (rec.parent != descriptor) {
+                    continue;
+                }
+
+                terminate(rec.descriptor, file, line);
+            }
+        }
+    }
+}
+
+int SOCKETS::listen(
+    const char *port, int ai_family, int ai_flags, const char *file, int line
+) {
     int epoll_descriptor = NO_DESCRIPTOR;
     record_type *epoll_record = find_epoll_record();
 
     if (!epoll_record) {
-        epoll_descriptor = create_epoll();
+        epoll_descriptor = create_epoll(); // TODO: remove code duplication
 
         if (epoll_descriptor == NO_DESCRIPTOR) {
             log(
@@ -1305,13 +1315,12 @@ int SOCKETS::listen(const char *port, int ai_family, int ai_flags) {
             int code = errno;
 
             log(
-                "listen: %s (%s:%d)", strerror(code), __FILE__, __LINE__
+                "listen: %s (%s:%d)", strerror(code), file, line
             );
         }
         else {
             log(
-                "listen: unexpected return value %d (%s:%d)", retval,
-                __FILE__, __LINE__
+                "listen: unexpected return value %d (%s:%d)", retval, file, line
             );
         }
 
