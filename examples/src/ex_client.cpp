@@ -20,6 +20,7 @@ int main(int argc, char **argv) {
     };
 
     if (!success) {
+        printf("%s\n", "Failed to initialize networking.");
         return EXIT_FAILURE;
     }
 

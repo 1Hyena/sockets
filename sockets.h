@@ -179,6 +179,8 @@ class SOCKETS {
     record_type *find_epoll_record();
     const record_type &get_record(int descriptor) const;
     record_type &get_record(int descriptor);
+    const record_type &get_epoll_record() const;
+    record_type &get_epoll_record();
 
     bool set_group(int descriptor, int group);
     bool rem_group(int descriptor);
@@ -235,6 +237,17 @@ bool SOCKETS::init(const std::function<void(const char *text)>& log_cb) {
         log(
             "sigemptyset: unexpected return value %d (%s:%d)", retval,
             __FILE__, __LINE__
+        );
+
+        return false;
+    }
+
+    int epoll_descriptor = create_epoll();
+
+    if (epoll_descriptor == NO_DESCRIPTOR) {
+        log(
+            "%s: %s (%s:%d)", __FUNCTION__,
+            "epoll record could not be created", __FILE__, __LINE__
         );
 
         return false;
@@ -975,18 +988,8 @@ bool SOCKETS::handle_write(int descriptor) {
 
 bool SOCKETS::handle_accept(int descriptor) {
     // New incoming connection detected.
-    record_type *epoll_record = find_epoll_record();
-
-    if (!epoll_record) {
-        log(
-            "%s: %s (%s:%d)", __FUNCTION__,
-            "epoll record could not be found", __FILE__, __LINE__
-        );
-
-        return false;
-    }
-
-    int epoll_descriptor = epoll_record->descriptor;
+    record_type &epoll_record = get_epoll_record();
+    int epoll_descriptor = epoll_record.descriptor;
 
     struct sockaddr in_addr;
     socklen_t in_len = sizeof(in_addr);
@@ -1099,7 +1102,7 @@ bool SOCKETS::handle_accept(int descriptor) {
         client_record.port[0] = '\0';
     }
 
-    epoll_event *event = &(epoll_record->events[0]);
+    epoll_event *event = &(epoll_record.events[0]);
 
     event->data.fd = client_descriptor;
     event->events = EPOLLIN|EPOLLET|EPOLLRDHUP;
@@ -1143,24 +1146,7 @@ int SOCKETS::connect(
     const char *host, const char *port, int group, int ai_family, int ai_flags,
     const struct addrinfo *blacklist, const char *file, int line
 ) {
-    int epoll_descriptor = NO_DESCRIPTOR;
-    record_type *epoll_record = find_epoll_record();
-
-    if (!epoll_record) {
-        epoll_descriptor = create_epoll();
-
-        if (epoll_descriptor == NO_DESCRIPTOR) {
-            log(
-                "%s: %s (%s:%d)", __FUNCTION__,
-                "epoll record could not be created", __FILE__, __LINE__
-            );
-
-            return NO_DESCRIPTOR;
-        }
-    }
-    else {
-        epoll_descriptor = epoll_record->descriptor;
-    }
+    int epoll_descriptor = get_epoll_record().descriptor;
 
     std::vector<uint8_t> *incoming{new (std::nothrow) std::vector<uint8_t>};
     std::vector<uint8_t> *outgoing{new (std::nothrow) std::vector<uint8_t>};
@@ -1285,25 +1271,7 @@ void SOCKETS::terminate(int descriptor, const char *file, int line) {
 int SOCKETS::listen(
     const char *port, int ai_family, int ai_flags, const char *file, int line
 ) {
-    int epoll_descriptor = NO_DESCRIPTOR;
-    record_type *epoll_record = find_epoll_record();
-
-    if (!epoll_record) {
-        epoll_descriptor = create_epoll(); // TODO: remove code duplication
-
-        if (epoll_descriptor == NO_DESCRIPTOR) {
-            log(
-                "%s: %s (%s:%d)", __FUNCTION__,
-                "epoll record could not be created", __FILE__, __LINE__
-            );
-
-            return NO_DESCRIPTOR;
-        }
-    }
-    else {
-        epoll_descriptor = epoll_record->descriptor;
-    }
-
+    int epoll_descriptor = get_epoll_record().descriptor;
     int descriptor = open_and_init(nullptr, port, ai_family, ai_flags);
 
     if (descriptor == NO_DESCRIPTOR) return NO_DESCRIPTOR;
@@ -1941,21 +1909,26 @@ SOCKETS::record_type &SOCKETS::get_record(int descriptor) {
     return *rec;
 }
 
+const SOCKETS::record_type &SOCKETS::get_epoll_record() const {
+    const record_type *rec = find_epoll_record();
+
+    if (!rec) die();
+
+    return *rec;
+}
+
+SOCKETS::record_type &SOCKETS::get_epoll_record() {
+    record_type *rec = find_epoll_record();
+
+    if (!rec) die();
+
+    return *rec;
+}
+
 bool SOCKETS::modify_epoll(int descriptor, uint32_t events) {
-    record_type *epoll_record = find_epoll_record();
-
-    if (!epoll_record) {
-        log(
-            "%s: %s (%s:%d)", __FUNCTION__,
-            "epoll record could not be found", __FILE__, __LINE__
-        );
-
-        return false;
-    }
-
-    int epoll_descriptor = epoll_record->descriptor;
-
-    epoll_event *event = &(epoll_record->events[0]);
+    record_type &epoll_record = get_epoll_record();
+    int epoll_descriptor = epoll_record.descriptor;
+    epoll_event *event = &(epoll_record.events[0]);
 
     event->data.fd = descriptor;
     event->events = events;
