@@ -571,7 +571,7 @@ bool SOCKETS::serve(int timeout) {
 }
 
 void SOCKETS::writef(int descriptor, const char *fmt, ...) {
-    char stackbuf[1024]; // TODO: handle longer strings
+    char stackbuf[1024];
 
     va_list args;
     va_start(args, fmt);
@@ -589,52 +589,57 @@ void SOCKETS::writef(int descriptor, const char *fmt, ...) {
 
     const record_type *record = find_record(descriptor);
 
-    if (record && record->outgoing) {
-        if (size_t(retval) < sizeof(stackbuf)) {
-            record->outgoing->insert(
-                record->outgoing->end(), stackbuf, stackbuf + retval
-            );
-            set_flag(descriptor, FLAG::WRITE);
-        }
-        else {
-            size_t heapbuf_sz = size_t(retval) + 1;
-            char *heapbuf = new (std::nothrow) char [heapbuf_sz];
-
-            if (heapbuf == nullptr) {
-                log(
-                    "%s: out of memory when formatting '%s' (%s:%d).",
-                    __FUNCTION__, fmt, __FILE__, __LINE__
-                );
-
-                return;
-            }
-
-            va_start(args, fmt);
-            retval = vsnprintf(heapbuf, heapbuf_sz, fmt, args);
-            va_end(args);
-
-            if (retval < 0) {
-                log(
-                    "%s: encoding error when formatting '%s' (%s:%d).",
-                    __FUNCTION__, fmt, __FILE__, __LINE__
-                );
-            }
-            else if (size_t(retval) < heapbuf_sz) {
-                record->outgoing->insert(
-                    record->outgoing->end(), heapbuf, heapbuf + retval
-                );
-                set_flag(descriptor, FLAG::WRITE);
-            }
-            else {
-                log(
-                    "%s: unexpected program flow (%s:%d).",
-                    __FUNCTION__, __FILE__, __LINE__
-                );
-            }
-
-            delete [] heapbuf;
-        }
+    if (!record || record->outgoing == nullptr) {
+        return;
     }
+
+    if (size_t(retval) < sizeof(stackbuf)) {
+        record->outgoing->insert(
+            record->outgoing->end(), stackbuf, stackbuf + retval
+        );
+
+        set_flag(descriptor, FLAG::WRITE);
+
+        return;
+    }
+
+    size_t heapbuf_sz = size_t(retval) + 1;
+    char *heapbuf = new (std::nothrow) char [heapbuf_sz];
+
+    if (heapbuf == nullptr) {
+        log(
+            "%s: out of memory when formatting '%s' (%s:%d).",
+            __FUNCTION__, fmt, __FILE__, __LINE__
+        );
+
+        return;
+    }
+
+    va_start(args, fmt);
+    retval = vsnprintf(heapbuf, heapbuf_sz, fmt, args);
+    va_end(args);
+
+    if (retval < 0) {
+        log(
+            "%s: encoding error when formatting '%s' (%s:%d).",
+            __FUNCTION__, fmt, __FILE__, __LINE__
+        );
+    }
+    else if (size_t(retval) < heapbuf_sz) {
+        record->outgoing->insert(
+            record->outgoing->end(), heapbuf, heapbuf + retval
+        );
+
+        set_flag(descriptor, FLAG::WRITE);
+    }
+    else {
+        log(
+            "%s: unexpected program flow (%s:%d).",
+            __FUNCTION__, __FILE__, __LINE__
+        );
+    }
+
+    delete [] heapbuf;
 }
 
 void SOCKETS::log(const char *fmt, ...) const {
