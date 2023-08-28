@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: MIT
 CC      = g++
 PROF    = -O3
-C_FLAGS = -std=c++17 -Wall -Wextra -pedantic-errors -Wconversion -Wno-unused-parameter -fmax-errors=5
+C_FLAGS = -std=c++17 -Wall -Wextra -pedantic-errors -Wconversion \
+          -Wno-unused-parameter -fmax-errors=5
 L_FLAGS = -lm -lstdc++
 SRC_DIR = src
 OUT_DIR = bin
@@ -13,10 +14,15 @@ all:
 	@$(MAKE) verbose -s
 
 verbose: $(OUT_FILES)
-	@printf "\033[1;32mAll done! Examples are in the '%s' directory.\033[0m\n" $(OUT_DIR)
+	@printf "\033[1;32mAll done! Examples are in the '%s' directory.\033[0m\n" \
+	$(OUT_DIR)
+
+PRINT_FMT1 = "\033[1m\033[31mCompiling \033[37m....\033[34m %-20s"
+PRINT_FMT2 = "\t\033[33m%6s\033[31m lines\033[0m \n"
+PRINT_FMT  = $(PRINT_FMT1)$(PRINT_FMT2)
 
 $(OUT_FILES): %: $(SRC_DIR)/%.cpp
-	@printf "\033[1m\033[31mCompiling \033[37m....\033[34m %-20s\t\033[33m%6s\033[31m lines\033[0m \n" $*.cpp "`wc -l $(SRC_DIR)/$*.cpp | cut -f1 -d' '`"
+	@printf $(PRINT_FMT) $*.cpp "`wc -l $(SRC_DIR)/$*.cpp | cut -f1 -d' '`"
 	$(CC) $< $(C_FLAGS) $(PROF) -o $(OUT_DIR)/$@ $(L_FLAGS)
 
 clean:
