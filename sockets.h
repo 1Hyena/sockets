@@ -44,7 +44,6 @@
 class SOCKETS {
     public:
     static constexpr const char *VERSION = "1.0";
-    static const int EPOLL_MAX_EVENTS = 64;
     static const int NO_DESCRIPTOR = -1;
 
     SOCKETS() : log_callback(nullptr) {}
@@ -53,43 +52,40 @@ class SOCKETS {
     bool init(const std::function<void(const char *)>& log_cb = nullptr);
     bool deinit();
 
-    int listen_ipv6(const char *port, bool exposed);
-    int listen_ipv4(const char *port, bool exposed);
-    int listen_any(const char *port, bool exposed);
-    int listen(const char *port, bool exposed =true);
-
+    int listen(const char *port);
     bool connect(const char *host, const char *port, int group =0);
-    void disconnect(int descriptor);
+    bool serve(int timeout =-1);
+    bool idle() const;
 
     int next_connection();
     int next_disconnection();
     int next_incoming();
 
-    bool is_listener(int descriptor) const;
-    int get_group(int descriptor) const;
-    size_t get_group_size(int group) const;
-    int get_listener(int descriptor) const;
-    const char *get_host(int descriptor) const;
-    const char *get_port(int descriptor) const;
-    void freeze(int descriptor);
-    void unfreeze(int descriptor);
-    bool is_frozen(int descriptor) const;
-    bool idle() const;
-
-    bool swap_incoming(int descriptor, std::vector<uint8_t> &bytes);
-    bool swap_outgoing(int descriptor, std::vector<uint8_t> &bytes);
-    bool append_outgoing(int descriptor, const std::vector<uint8_t> &bytes);
-    bool serve(int timeout =-1);
     const char *read(int descriptor);
     void write(int descriptor, const char *text);
     void writef(
         int descriptor, const char *fmt, ...
     ) __attribute__((format(printf, 3, 4)));
-    void log(const char *fmt, ...) const __attribute__((format(printf, 2, 3)));
-    void bug(const char *f =__builtin_FILE(), int l =__builtin_LINE()) const;
-    void die(const char *f =__builtin_FILE(), int l =__builtin_LINE()) const;
+
+    bool swap_incoming(int descriptor, std::vector<uint8_t> &bytes);
+    bool swap_outgoing(int descriptor, std::vector<uint8_t> &bytes);
+    bool append_outgoing(int descriptor, const std::vector<uint8_t> &bytes);
+
+    bool is_listener(int descriptor) const;
+    bool is_frozen(int descriptor) const;
+    int get_group(int descriptor) const;
+    size_t get_group_size(int group) const;
+    int get_listener(int descriptor) const;
+    const char *get_host(int descriptor) const;
+    const char *get_port(int descriptor) const;
+
+    void freeze(int descriptor);
+    void unfreeze(int descriptor);
+    void disconnect(int descriptor);
 
     private:
+    static const int EPOLL_MAX_EVENTS = 64;
+
     enum class FLAG : uint8_t {
         NONE           =  0,
         TIMEOUT        =  1,
@@ -148,15 +144,21 @@ class SOCKETS {
     bool handle_write(int descriptor);
     bool handle_accept(int descriptor);
 
+    int listen_ipv6(const char *port, bool exposed);
+    int listen_ipv4(const char *port, bool exposed);
+    int listen_any(const char *port, bool exposed);
+
     int connect(
         const char *host, const char *port, int group, int family, int flags,
         const struct addrinfo *blacklist =nullptr,
         const char *file =__builtin_FILE(), int line =__builtin_LINE()
     );
+
     int listen(
         const char *port, int family, int flags,
         const char *file =__builtin_FILE(), int line =__builtin_LINE()
     );
+
     void terminate(
         int descriptor,
         const char *file =__builtin_FILE(), int line =__builtin_LINE()
@@ -192,6 +194,10 @@ class SOCKETS {
     bool rem_flag(int descriptor, FLAG flag);
     bool has_flag(const record_type &rec, const FLAG flag) const;
     bool has_flag(int descriptor, const FLAG flag) const;
+
+    void log(const char *fmt, ...) const __attribute__((format(printf, 2, 3)));
+    void bug(const char *f =__builtin_FILE(), int l =__builtin_LINE()) const;
+    void die(const char *f =__builtin_FILE(), int l =__builtin_LINE()) const;
 
     std::function<void(const char *text)> log_callback;
     std::unordered_map<int, size_t> groups;
@@ -292,8 +298,8 @@ int SOCKETS::listen_any(const char *port, bool exposed) {
     return listen(port, AF_UNSPEC, exposed ? AI_PASSIVE : 0);
 }
 
-int SOCKETS::listen(const char *port, bool exposed) {
-    return listen_ipv4(port, exposed);
+int SOCKETS::listen(const char *port) {
+    return listen_any(port, true);
 }
 
 int SOCKETS::next_connection() {
@@ -413,18 +419,31 @@ void SOCKETS::disconnect(int descriptor) {
 
 bool SOCKETS::swap_incoming(int descriptor, std::vector<uint8_t> &bytes) {
     const record_type *record = find_record(descriptor);
-    if (record && record->incoming) record->incoming->swap(bytes);
-    else return false;
 
-    return true;
+    if (record && record->incoming) {
+        if (!bytes.empty()) {
+            set_flag(descriptor, FLAG::INCOMING);
+        }
+
+        record->incoming->swap(bytes);
+
+        return true;
+    }
+
+    return false;
 }
 
 bool SOCKETS::swap_outgoing(int descriptor, std::vector<uint8_t> &bytes) {
     const record_type *record = find_record(descriptor);
-    if (record && record->outgoing) record->outgoing->swap(bytes);
-    else return false;
 
-    return true;
+    if (record && record->outgoing) {
+        record->outgoing->swap(bytes);
+        set_flag(descriptor, FLAG::WRITE);
+
+        return true;
+    }
+
+    return false;
 }
 
 bool SOCKETS::append_outgoing(
@@ -440,10 +459,11 @@ bool SOCKETS::append_outgoing(
 
             set_flag(descriptor, FLAG::WRITE);
         }
-    }
-    else return false;
 
-    return true;
+        return true;
+    }
+
+    return false;
 }
 
 bool SOCKETS::serve(int timeout) {
@@ -925,11 +945,15 @@ bool SOCKETS::handle_epoll(int epoll_descriptor, int timeout) {
 }
 
 bool SOCKETS::handle_read(int descriptor) {
+    // TODO: refactor this method and redesign the library in such a way that it
+    // prevents reading from the descriptor if the vector of incoming bytes gets
+    // too large and is not emptied by the application.
+
     record_type &record = get_record(descriptor);
 
     while (1) {
         ssize_t count;
-        char buf[65536];
+        char buf[65536]; // TODO: stop using so large stack buffer
 
         count = ::read(descriptor, buf, sizeof(buf));
         if (count < 0) {
