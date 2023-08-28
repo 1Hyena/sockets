@@ -5,32 +5,54 @@ the creation and acceptance of TCP connections. The library makes use of the
 *epoll* Linux kernel system call to achieve a scalable I/O event notification
 mechanism.
 
+
 # Usage ########################################################################
 
 In the following subsection various code snippets are provided in order to
-exemplify the most basic uses of this library. Then, a set of practical example
-programs is provided for the creation of production grade software.
+exemplify the most basic uses of this library. After that, a set of practical
+example programs is provided for the creation of production grade software.
 
 
-## Minimalist Examples #########################################################
+## Minimalistic Examples #######################################################
 
-The following piece of code is the most minimalist example of a TCP server
+The following piece of code is the most minimalistic example of a TCP server
 using the SOCKETS library.
 
-```
+```C++
 SOCKETS sockets;
 sockets.init();
-
-int d, tcp_listener = sockets.listen(4000);
+sockets.listen("4000");
 
 while (sockets.serve()) {
-    while ((d = sockets.next_connection()) != SOCKETS::NO_DESCRIPTOR) {
+    for (int d; (d = sockets.next_connection()) != SOCKETS::NO_DESCRIPTOR;) {
         sockets.writef(
             d, "Hello, %s:%s!\n\r", sockets.get_host(d), sockets.get_port(d)
         );
     }
 }
 ```
+
+A really simple TCP client that doesn't do any error checking would look like
+the following code snippet.
+
+```C++
+SOCKETS sockets;
+sockets.init();
+sockets.connect("localhost", "4000");
+
+while (sockets.serve()) {
+    for (int d; (d = sockets.next_connection()) != SOCKETS::NO_DESCRIPTOR;) {
+        printf(
+            "Connected to %s:%s.\n", sockets.get_host(d), sockets.get_port(d)
+        );
+    }
+
+    for (int d; (d = sockets.next_incoming()) != SOCKETS::NO_DESCRIPTOR;) {
+        printf("%s", sockets.read(d));
+    }
+}
+```
+
 
 ## Practical Examples ##########################################################
 
@@ -47,8 +69,20 @@ examples.
   exchange some data with the target server. The client connects to _localhost_
   on port 4000 and sends them some text message upon a successful connection.
 
-In the following subsections the most common build instructions and the target
-platform system requirements are given.
+* [ex_sleep](examples/src/ex_sleep.cpp) —
+  The _SOCKETS::serve_ method can take an argument specifying the maximum number
+  of milliseconds to wait for networking events. This feature can be used to
+  simulate a sleeping routine where the program stops using any processing power
+  for a given amount of time.
+
+* [ex_signal](examples/src/ex_signal.cpp) —
+  Since this library is inherently single-threaded, it is trivial to use it in
+  combination with custom signal handlers. For example, one might want to
+  implement the main loop of their application with the help of _SIGALRM_ to
+  make sure that each cycle starts after a fixed time interval.
+
+In the following subsections the regular build instructions and target platform
+system requirements are given.
 
 
 ## Build Instructions ##########################################################

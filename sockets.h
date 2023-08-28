@@ -27,6 +27,7 @@
 
 #include <array>
 #include <vector>
+#include <string>
 #include <algorithm>
 #include <functional>
 #include <netdb.h>
@@ -79,6 +80,8 @@ class SOCKETS {
     bool swap_outgoing(int descriptor, std::vector<uint8_t> &bytes);
     bool append_outgoing(int descriptor, const std::vector<uint8_t> &bytes);
     bool serve(int timeout =-1);
+    const char *read(int descriptor);
+    void write(int descriptor, const char *text);
     void writef(
         int descriptor, const char *fmt, ...
     ) __attribute__((format(printf, 3, 4)));
@@ -103,9 +106,10 @@ class SOCKETS {
         MAY_SHUTDOWN   = 11,
         LISTENER       = 12,
         CONNECTING     = 13,
+        FUSED          = 14,
         // Do not change the order of the flags below this line.
-        EPOLL          = 14,
-        MAX_FLAGS      = 15
+        EPOLL          = 15,
+        MAX_FLAGS      = 16
     };
 
     struct record_type {
@@ -196,6 +200,7 @@ class SOCKETS {
         std::vector<flag_type>,
         static_cast<size_t>(FLAG::MAX_FLAGS)
     > flags;
+    std::string cache;
     sigset_t sigset_all;
     sigset_t sigset_none;
     sigset_t sigset_orig;
@@ -470,7 +475,8 @@ bool SOCKETS::serve(int timeout) {
             case FLAG::NEW_CONNECTION:
             case FLAG::DISCONNECT:
             case FLAG::CONNECTING:
-            case FLAG::MAY_SHUTDOWN: {
+            case FLAG::MAY_SHUTDOWN:
+            case FLAG::FUSED: {
                 // This flag has no handler and is to be ignored here.
 
                 continue;
@@ -568,6 +574,36 @@ bool SOCKETS::serve(int timeout) {
     }
 
     return true;
+}
+
+const char *SOCKETS::read(int descriptor) {
+    const record_type *record = find_record(descriptor);
+
+    if (!record || record->incoming == nullptr || record->incoming->empty()) {
+        return "";
+    }
+
+    cache.assign(
+        (const char *) record->incoming->data(), record->incoming->size()
+    );
+
+    record->incoming->clear();
+
+    return cache.c_str();
+}
+
+void SOCKETS::write(int descriptor, const char *text) {
+    const record_type *record = find_record(descriptor);
+
+    if (!record || record->outgoing == nullptr) {
+        return;
+    }
+
+    record->outgoing->insert(
+        record->outgoing->end(), text, text + strlen(text)
+    );
+
+    set_flag(descriptor, FLAG::WRITE);
 }
 
 void SOCKETS::writef(int descriptor, const char *fmt, ...) {
@@ -749,9 +785,19 @@ bool SOCKETS::handle_epoll(int epoll_descriptor, int timeout) {
 
     for (size_t flag_index : blockers) {
         if (!flags[flag_index].empty()) {
-            return true;
+            if (!has_flag(epoll_descriptor, FLAG::FUSED)) {
+                set_flag(epoll_descriptor, FLAG::FUSED);
+
+                return true;
+            }
+
+            log("Cannot serve sockets if there are unhandled events.");
+
+            return false;
         }
     }
+
+    rem_flag(epoll_descriptor, FLAG::FUSED);
 
     record_type &record = get_record(epoll_descriptor);
     epoll_event *events = &(record.events[1]);
@@ -948,7 +994,7 @@ bool SOCKETS::handle_write(int descriptor) {
         size_t buf = length - istart;
         size_t nblock = (buf < 4096 ? buf : 4096);
 
-        nwrite = write(descriptor, bytes+istart, nblock);
+        nwrite = ::write(descriptor, bytes+istart, nblock);
 
         if (nwrite < 0) {
             int code = errno;
