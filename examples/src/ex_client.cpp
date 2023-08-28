@@ -42,7 +42,7 @@ int main(int argc, char **argv) {
                 );
 
                 connected = true;
-                sockets.writef(d, "%s", "Ahoy!\n");
+                sockets.write(d, "Ahoy!\n");
             }
 
             if ((d = sockets.next_disconnection()) != SOCKETS::NO_DESCRIPTOR) {
