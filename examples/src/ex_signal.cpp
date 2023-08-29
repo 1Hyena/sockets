@@ -7,7 +7,7 @@ void signal_handler(int sig) {
 }
 
 int main(int argc, char **argv) {
-    signal(SIGALRM, signal_handler);
+    std::signal(SIGALRM, signal_handler);
     alarm(3);
 
     SOCKETS sockets;

@@ -33,9 +33,9 @@
 #include <netdb.h>
 #include <sys/epoll.h>
 #include <unordered_map>
-#include <signal.h>
+#include <csignal>
 #include <cstring>
-#include <stdarg.h>
+#include <cstdarg>
 #include <unistd.h>
 #include <cerrno>
 #include <limits>
@@ -663,7 +663,7 @@ void SOCKETS::write(int descriptor, const char *text) {
 void SOCKETS::writef(int descriptor, const char *fmt, ...) {
     char stackbuf[1024];
 
-    va_list args;
+    std::va_list args;
     va_start(args, fmt);
     int retval = vsnprintf(stackbuf, sizeof(stackbuf), fmt, args);
     va_end(args);
@@ -740,7 +740,7 @@ void SOCKETS::log(const char *fmt, ...) const {
     size_t bufsz = sizeof(stackbuf);
 
     for (size_t i=0; i<2 && bufptr; ++i) {
-        va_list args;
+        std::va_list args;
         va_start(args, fmt);
         int cx = vsnprintf(bufptr, bufsz, fmt, args);
         va_end(args);
@@ -771,7 +771,7 @@ void SOCKETS::bug(const char *file, int line) const {
 void SOCKETS::die(const char *file, int line) const {
     bug(file, line);
     fflush(nullptr);
-    raise(SIGSEGV);
+    std::raise(SIGSEGV);
 }
 
 bool SOCKETS::handle_close(int descriptor) {
