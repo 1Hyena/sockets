@@ -46,11 +46,13 @@ class SOCKETS {
     static constexpr const char *VERSION = "1.0";
     static const int NO_DESCRIPTOR = -1;
 
-    SOCKETS() : log_callback(nullptr) {}
-    ~SOCKETS() {}
+    SOCKETS();
+    ~SOCKETS();
 
-    bool init(const std::function<void(const char *)>& log_cb = nullptr);
+    bool init();
     bool deinit();
+
+    void set_logger(const std::function<void(const char *)>& log_callback);
 
     int listen(const char *port);
     bool connect(const char *host, const char *port, int group =0);
@@ -212,8 +214,21 @@ class SOCKETS {
     sigset_t sigset_orig;
 };
 
-bool SOCKETS::init(const std::function<void(const char *text)>& log_cb) {
-    log_callback = log_cb;
+SOCKETS::SOCKETS() : log_callback(nullptr) {
+}
+
+SOCKETS::~SOCKETS() {
+    if (find_epoll_record()) {
+        log("%s", "destroying instance without having it deinitialized first");
+    }
+}
+
+bool SOCKETS::init() {
+    if (find_epoll_record()) {
+        log("%s: already initialized", __FUNCTION__);
+
+        return false;
+    }
 
     int retval = sigfillset(&sigset_all);
     if (retval == -1) {
@@ -268,6 +283,12 @@ bool SOCKETS::init(const std::function<void(const char *text)>& log_cb) {
 }
 
 bool SOCKETS::deinit() {
+    if (!find_epoll_record()) {
+        log("%s: already deinitialized", __FUNCTION__);
+
+        return false;
+    }
+
     bool success = true;
 
     for (size_t key_hash=0; key_hash<descriptors.size(); ++key_hash) {
@@ -284,6 +305,10 @@ bool SOCKETS::deinit() {
     }
 
     return success;
+}
+
+void SOCKETS::set_logger(const std::function<void(const char *text)>& log_cb) {
+    log_callback = log_cb;
 }
 
 int SOCKETS::listen_ipv6(const char *port, bool exposed) {

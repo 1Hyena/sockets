@@ -11,18 +11,16 @@ int main(int argc, char **argv) {
 
     printf("Initializing networking (SOCKETS v%s).\n", SOCKETS::VERSION);
 
-    bool success{
-        sockets.init(
-            [&](const char *txt) {
-                printf("Sockets: %s\n", txt);
-            }
-        )
-    };
-
-    if (!success) {
+    if (!sockets.init()) {
         printf("%s\n", "Failed to initialize networking.");
         return EXIT_FAILURE;
     }
+
+    sockets.set_logger(
+        [](const char *txt) {
+            printf("Sockets: %s\n", txt);
+        }
+    );
 
     printf("Connecting to %s:%s.\n", SERVER_HOST, SERVER_PORT);
 
