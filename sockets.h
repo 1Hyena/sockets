@@ -34,7 +34,7 @@
 #include <sys/epoll.h>
 #include <unordered_map>
 #include <signal.h>
-#include <string.h>
+#include <cstring>
 #include <stdarg.h>
 #include <unistd.h>
 #include <cerrno>
@@ -44,7 +44,7 @@
 class SOCKETS {
     public:
     static constexpr const char *VERSION = "1.0";
-    static const int NO_DESCRIPTOR = -1;
+    static constexpr const int NO_DESCRIPTOR = -1;
 
     SOCKETS();
     ~SOCKETS();
@@ -86,7 +86,8 @@ class SOCKETS {
     void disconnect(int descriptor);
 
     private:
-    static const int EPOLL_MAX_EVENTS = 64;
+    static constexpr const int EPOLL_MAX_EVENTS  = 64;
+    static constexpr const size_t MAX_CACHE_SIZE = 1024 * 1024;
 
     enum class FLAG : uint8_t {
         NONE           =  0,
@@ -208,7 +209,7 @@ class SOCKETS {
         std::vector<flag_type>,
         static_cast<size_t>(FLAG::MAX_FLAGS)
     > flags;
-    std::string cache;
+    std::vector<uint8_t> cache;
     sigset_t sigset_all;
     sigset_t sigset_none;
     sigset_t sigset_orig;
@@ -630,13 +631,19 @@ const char *SOCKETS::read(int descriptor) {
         return "";
     }
 
-    cache.assign(
-        (const char *) record->incoming->data(), record->incoming->size()
+    if (cache.size() < record->incoming->size() + 1) {
+        cache.resize(record->incoming->size() + 1);
+    }
+
+    std::memcpy(
+        cache.data(), record->incoming->data(), record->incoming->size()
     );
+
+    cache[record->incoming->size()] = '\0';
 
     record->incoming->clear();
 
-    return cache.c_str();
+    return (const char *) cache.data();
 }
 
 void SOCKETS::write(int descriptor, const char *text) {
@@ -647,7 +654,7 @@ void SOCKETS::write(int descriptor, const char *text) {
     }
 
     record->outgoing->insert(
-        record->outgoing->end(), text, text + strlen(text)
+        record->outgoing->end(), text, text + std::strlen(text)
     );
 
     set_flag(descriptor, FLAG::WRITE);
@@ -972,27 +979,38 @@ bool SOCKETS::handle_epoll(int epoll_descriptor, int timeout) {
 }
 
 bool SOCKETS::handle_read(int descriptor) {
-    // TODO: refactor this method and redesign the library in such a way that it
-    // prevents reading from the descriptor if the vector of incoming bytes gets
-    // too large and is not emptied by the application.
-
     record_type &record = get_record(descriptor);
 
-    while (1) {
-        ssize_t count;
-        char buf[65536]; // TODO: stop using so large stack buffer
+    if (!record.incoming->empty()) {
+        set_flag(descriptor, FLAG::READ);
+        set_flag(descriptor, FLAG::INCOMING);
 
-        count = ::read(descriptor, buf, sizeof(buf));
-        if (count < 0) {
+        return true;
+    }
+
+    if (cache.size() < 1024) {
+        cache.resize(1024);
+    }
+
+    for (size_t total_count = 0;;) {
+        ssize_t count;
+        char *buf = (char *) cache.data();
+        const size_t buf_sz = cache.size();
+
+        if ((count = ::read(descriptor, buf, buf_sz)) < 0) {
             if (count == -1) {
                 int code = errno;
 
                 if (code == EAGAIN || code == EWOULDBLOCK) {
+                    if (total_count) {
+                        rem_flag(descriptor, FLAG::READ);
+                    }
+
                     return true;
                 }
 
                 log(
-                    "read(%d, ?, %lu): %s (%s:%d)", descriptor, sizeof(buf),
+                    "read(%d, ?, %lu): %s (%s:%d)", descriptor, buf_sz,
                     strerror(code), __FILE__, __LINE__
                 );
 
@@ -1001,8 +1019,7 @@ bool SOCKETS::handle_read(int descriptor) {
 
             log(
                 "read(%d, ?, %lu): unexpected return value %lld (%s:%d)",
-                descriptor, sizeof(buf), (long long)(count),
-                __FILE__, __LINE__
+                descriptor, buf_sz, (long long)(count), __FILE__, __LINE__
             );
 
             break;
@@ -1013,10 +1030,21 @@ bool SOCKETS::handle_read(int descriptor) {
         }
 
         record.incoming->insert(record.incoming->end(), buf, buf+count);
-        set_flag(descriptor, FLAG::READ);
-        set_flag(descriptor, FLAG::INCOMING);
 
-        return true;
+        if (!total_count) {
+            set_flag(descriptor, FLAG::READ);
+            set_flag(descriptor, FLAG::INCOMING);
+        }
+
+        total_count += count;
+
+        if (size_t(count) == buf_sz && cache.size() < MAX_CACHE_SIZE) {
+            cache.resize(std::min(2 * cache.size(), MAX_CACHE_SIZE));
+        }
+
+        if (total_count >= MAX_CACHE_SIZE) {
+            return true;
+        }
     }
 
     rem_flag(descriptor, FLAG::MAY_SHUTDOWN);
@@ -2232,14 +2260,14 @@ bool SOCKETS::is_listed(const addrinfo &info, const addrinfo *list) {
         }
 
         if (info.ai_canonname && next->ai_canonname
-        && strcmp(info.ai_canonname, next->ai_canonname)) {
+        && std::strcmp(info.ai_canonname, next->ai_canonname)) {
             continue;
         }
 
         const void *first = (const void *) info.ai_addr;
         const void *second = (const void *) next->ai_addr;
 
-        if (memcmp(first, second, (size_t) info.ai_addrlen) != 0) {
+        if (std::memcmp(first, second, (size_t) info.ai_addrlen) != 0) {
             continue;
         }
 
