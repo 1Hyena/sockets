@@ -71,7 +71,7 @@ class SOCKETS {
 
     bool swap_incoming(int descriptor, std::vector<uint8_t> &bytes);
     bool swap_outgoing(int descriptor, std::vector<uint8_t> &bytes);
-    bool append_outgoing(int descriptor, const std::vector<uint8_t> &bytes);
+    bool append_outgoing(int descriptor, const uint8_t *buffer, size_t size);
 
     bool is_listener(int descriptor) const;
     bool is_frozen(int descriptor) const;
@@ -472,14 +472,16 @@ bool SOCKETS::swap_outgoing(int descriptor, std::vector<uint8_t> &bytes) {
 }
 
 bool SOCKETS::append_outgoing(
-    int descriptor, const std::vector<uint8_t> &bytes
+    int descriptor, const uint8_t *buffer, size_t size
 ) {
     const record_type *record = find_record(descriptor);
 
     if (record && record->outgoing) {
-        if (!bytes.empty()) {
+        if (!buffer) die();
+
+        if (size) {
             record->outgoing->insert(
-                record->outgoing->end(), bytes.begin(), bytes.end()
+                record->outgoing->end(), buffer, buffer + size
             );
 
             set_flag(descriptor, FLAG::WRITE);
