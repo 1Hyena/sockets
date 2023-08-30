@@ -54,7 +54,7 @@ class SOCKETS {
 
     void set_logger(const std::function<void(const char *)>& log_callback);
 
-    int listen(const char *port);
+    int listen(const char *port, int family =AF_UNSPEC, int flags =AI_PASSIVE);
     bool connect(const char *host, const char *port, int group =0);
     bool serve(int timeout =-1);
     bool idle() const;
@@ -147,10 +147,6 @@ class SOCKETS {
     bool handle_write(int descriptor);
     bool handle_accept(int descriptor);
 
-    int listen_ipv6(const char *port, bool exposed);
-    int listen_ipv4(const char *port, bool exposed);
-    int listen_any(const char *port, bool exposed);
-
     int connect(
         const char *host, const char *port, int group, int family, int flags,
         const struct addrinfo *blacklist =nullptr,
@@ -158,7 +154,7 @@ class SOCKETS {
     );
 
     int listen(
-        const char *port, int family, int flags,
+        const char *host, const char *port, int family, int flags,
         const char *file =__builtin_FILE(), int line =__builtin_LINE()
     );
 
@@ -312,20 +308,8 @@ void SOCKETS::set_logger(const std::function<void(const char *text)>& log_cb) {
     log_callback = log_cb;
 }
 
-int SOCKETS::listen_ipv6(const char *port, bool exposed) {
-    return listen(port, AF_INET6, exposed ? AI_PASSIVE : 0);
-}
-
-int SOCKETS::listen_ipv4(const char *port, bool exposed) {
-    return listen(port, AF_INET, exposed ? AI_PASSIVE : 0);
-}
-
-int SOCKETS::listen_any(const char *port, bool exposed) {
-    return listen(port, AF_UNSPEC, exposed ? AI_PASSIVE : 0);
-}
-
-int SOCKETS::listen(const char *port) {
-    return listen_any(port, true);
+int SOCKETS::listen(const char *port, int family, int flags) {
+    return listen(nullptr, port, family, flags);
 }
 
 int SOCKETS::next_connection() {
@@ -1399,10 +1383,11 @@ void SOCKETS::terminate(int descriptor, const char *file, int line) {
 }
 
 int SOCKETS::listen(
-    const char *port, int ai_family, int ai_flags, const char *file, int line
+    const char *host, const char *port, int ai_family, int ai_flags,
+    const char *file, int line
 ) {
     int epoll_descriptor = get_epoll_record().descriptor;
-    int descriptor = open_and_init(nullptr, port, ai_family, ai_flags);
+    int descriptor = open_and_init(host, port, ai_family, ai_flags);
 
     if (descriptor == NO_DESCRIPTOR) return NO_DESCRIPTOR;
 
