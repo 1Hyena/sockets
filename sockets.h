@@ -42,7 +42,7 @@
 #include <cstdio>
 #include <iostream>
 
-class SOCKETS {
+class SOCKETS final {
     public:
     static constexpr const char *VERSION = "1.0";
     static constexpr const int NO_DESCRIPTOR = -1;
