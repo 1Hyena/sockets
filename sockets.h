@@ -81,29 +81,31 @@ class SOCKETS {
     bool serve(int timeout =-1) noexcept;
     bool idle() const noexcept;
 
-    struct EVENT next_event();
+    struct EVENT next_event() noexcept;
 
-    const char *read(int descriptor);
-    void write(int descriptor, const char *text);
+    const char *read(int descriptor) noexcept;
+    void write(int descriptor, const char *text) noexcept;
     void writef(
         int descriptor, const char *fmt, ...
-    ) __attribute__((format(printf, 3, 4)));
+    ) noexcept __attribute__((format(printf, 3, 4)));
 
-    bool swap_incoming(int descriptor, std::vector<uint8_t> &bytes);
-    bool swap_outgoing(int descriptor, std::vector<uint8_t> &bytes);
-    bool append_outgoing(int descriptor, const uint8_t *buffer, size_t size);
+    bool swap_incoming(int descriptor, std::vector<uint8_t> &bytes) noexcept;
+    bool swap_outgoing(int descriptor, std::vector<uint8_t> &bytes) noexcept;
+    bool append_outgoing(
+        int descriptor, const uint8_t *buffer, size_t size
+    ) noexcept;
 
-    bool is_listener(int descriptor) const;
-    bool is_frozen(int descriptor) const;
-    int get_group(int descriptor) const;
-    size_t get_group_size(int group) const;
-    int get_listener(int descriptor) const;
-    const char *get_host(int descriptor) const;
-    const char *get_port(int descriptor) const;
+    bool is_listener(int descriptor) const noexcept;
+    bool is_frozen(int descriptor) const noexcept;
+    int get_group(int descriptor) const noexcept;
+    size_t get_group_size(int group) const noexcept;
+    int get_listener(int descriptor) const noexcept;
+    const char *get_host(int descriptor) const noexcept;
+    const char *get_port(int descriptor) const noexcept;
 
-    void freeze(int descriptor);
-    void unfreeze(int descriptor);
-    void disconnect(int descriptor);
+    void freeze(int descriptor) noexcept;
+    void unfreeze(int descriptor) noexcept;
+    void disconnect(int descriptor) noexcept;
 
     private:
     static constexpr const int EPOLL_MAX_EVENTS  = 64;
@@ -153,78 +155,86 @@ class SOCKETS {
 
     inline static constexpr struct record_type make_record(
         int descriptor, int parent, int group
-    );
+    ) noexcept;
 
     inline static constexpr struct EVENT make_event(
         int descriptor, EVENT::TYPE type, bool valid =true
-    );
+    ) noexcept;
 
     inline static constexpr struct flag_type make_flag(
         int descriptor =NO_DESCRIPTOR, FLAG index =FLAG::NONE
-    );
+    ) noexcept;
 
-    inline static bool is_listed(const addrinfo &info, const addrinfo *list);
+    inline static bool is_listed(
+        const addrinfo &info, const addrinfo *list
+    ) noexcept;
 
-    bool handle_close(int descriptor);
-    bool handle_epoll(int epoll_descriptor, int timeout);
-    bool handle_read(int descriptor);
-    bool handle_write(int descriptor);
-    bool handle_accept(int descriptor);
+    bool handle_close(int descriptor) noexcept;
+    bool handle_epoll(int epoll_descriptor, int timeout) noexcept;
+    bool handle_read(int descriptor) noexcept;
+    bool handle_write(int descriptor) noexcept;
+    bool handle_accept(int descriptor) noexcept;
 
     int connect(
         const char *host, const char *port, int group, int family, int flags,
         const struct addrinfo *blacklist =nullptr,
         const char *file =__builtin_FILE(), int line =__builtin_LINE()
-    );
+    ) noexcept;
 
     int listen(
         const char *host, const char *port, int family, int flags,
         const char *file =__builtin_FILE(), int line =__builtin_LINE()
-    );
+    ) noexcept;
 
     void terminate(
         int descriptor,
         const char *file =__builtin_FILE(), int line =__builtin_LINE()
-    );
+    ) noexcept;
 
-    int next_connection();
-    int next_disconnection();
-    int next_incoming();
+    int next_connection() noexcept;
+    int next_disconnection() noexcept;
+    int next_incoming() noexcept;
 
-    int create_epoll();
-    bool bind_to_epoll(int descriptor, int epoll_descriptor);
-    bool modify_epoll(int descriptor, uint32_t events);
+    int create_epoll() noexcept;
+    bool bind_to_epoll(int descriptor, int epoll_descriptor) noexcept;
+    bool modify_epoll(int descriptor, uint32_t events) noexcept;
 
     int open_and_init(
         const char *host, const char *port, int family, int flags,
         const struct addrinfo *blacklist =nullptr,
         const char *file =__builtin_FILE(), int line =__builtin_LINE()
-    );
+    ) noexcept;
 
-    size_t close_and_deinit(int descriptor);
+    size_t close_and_deinit(int descriptor) noexcept;
 
-    void push(record_type record);
-    record_type pop(int descriptor);
+    void push(record_type record) noexcept;
+    record_type pop(int descriptor) noexcept;
 
-    const record_type *find_record(int descriptor) const;
-    record_type *find_record(int descriptor);
-    const record_type *find_epoll_record() const;
-    record_type *find_epoll_record();
-    const record_type &get_record(int descriptor) const;
-    record_type &get_record(int descriptor);
-    const record_type &get_epoll_record() const;
-    record_type &get_epoll_record();
+    const record_type *find_record(int descriptor) const noexcept;
+    record_type *find_record(int descriptor) noexcept;
+    const record_type *find_epoll_record() const noexcept;
+    record_type *find_epoll_record() noexcept;
+    const record_type &get_record(int descriptor) const noexcept;
+    record_type &get_record(int descriptor) noexcept;
+    const record_type &get_epoll_record() const noexcept;
+    record_type &get_epoll_record() noexcept;
 
-    bool set_group(int descriptor, int group);
-    bool rem_group(int descriptor);
-    bool set_flag(int descriptor, FLAG flag, bool value =true);
-    bool rem_flag(int descriptor, FLAG flag);
-    bool has_flag(const record_type &rec, const FLAG flag) const;
-    bool has_flag(int descriptor, const FLAG flag) const;
+    bool set_group(int descriptor, int group) noexcept;
+    bool rem_group(int descriptor) noexcept;
+    bool set_flag(int descriptor, FLAG flag, bool value =true) noexcept;
+    bool rem_flag(int descriptor, FLAG flag) noexcept;
+    bool has_flag(const record_type &rec, const FLAG flag) const noexcept;
+    bool has_flag(int descriptor, const FLAG flag) const noexcept;
 
-    void log(const char *fmt, ...) const __attribute__((format(printf, 2, 3)));
-    void bug(const char *f =__builtin_FILE(), int l =__builtin_LINE()) const;
-    void die(const char *f =__builtin_FILE(), int l =__builtin_LINE()) const;
+    void log(
+        const char *fmt, ...
+    ) const noexcept __attribute__((format(printf, 2, 3)));
+    void bug(
+        const char *file =__builtin_FILE(), int line =__builtin_LINE()
+    ) const noexcept;
+    void die(
+        const char *file =__builtin_FILE(), int line =__builtin_LINE()
+    ) const noexcept;
 
     std::function<void(const char *text)> log_callback;
     std::unordered_map<int, size_t> groups;
@@ -342,7 +352,7 @@ int SOCKETS::listen(const char *port, int family, int flags) noexcept {
     return listen(nullptr, port, family, flags);
 }
 
-struct SOCKETS::EVENT SOCKETS::next_event() {
+struct SOCKETS::EVENT SOCKETS::next_event() noexcept {
     int d;
 
     record_type &epoll_record = get_epoll_record();
@@ -364,7 +374,7 @@ struct SOCKETS::EVENT SOCKETS::next_event() {
     return make_event(NO_DESCRIPTOR, EV_NONE, false);
 }
 
-int SOCKETS::next_connection() {
+int SOCKETS::next_connection() noexcept {
     static constexpr const size_t flg_connect_index{
         static_cast<size_t>(FLAG::NEW_CONNECTION)
     };
@@ -378,7 +388,7 @@ int SOCKETS::next_connection() {
     return NO_DESCRIPTOR;
 }
 
-int SOCKETS::next_disconnection() {
+int SOCKETS::next_disconnection() noexcept {
     static constexpr const size_t flg_connect_index{
         static_cast<size_t>(FLAG::NEW_CONNECTION)
     };
@@ -406,7 +416,7 @@ int SOCKETS::next_disconnection() {
     return NO_DESCRIPTOR;
 }
 
-int SOCKETS::next_incoming() {
+int SOCKETS::next_incoming() noexcept {
     static constexpr const size_t flg_incoming_index{
         static_cast<size_t>(FLAG::INCOMING)
     };
@@ -420,47 +430,47 @@ int SOCKETS::next_incoming() {
     return NO_DESCRIPTOR;
 }
 
-bool SOCKETS::is_listener(int descriptor) const {
+bool SOCKETS::is_listener(int descriptor) const noexcept {
     return has_flag(descriptor, FLAG::LISTENER);
 }
 
-int SOCKETS::get_group(int descriptor) const {
+int SOCKETS::get_group(int descriptor) const noexcept {
     const record_type *record = find_record(descriptor);
     return record ? record->group : 0;
 }
 
-size_t SOCKETS::get_group_size(int group) const {
+size_t SOCKETS::get_group_size(int group) const noexcept {
     if (groups.count(group)) return groups.at(group);
     return 0;
 }
 
-int SOCKETS::get_listener(int descriptor) const {
+int SOCKETS::get_listener(int descriptor) const noexcept {
     const record_type *record = find_record(descriptor);
     return record ? record->parent : NO_DESCRIPTOR;
 }
 
-const char *SOCKETS::get_host(int descriptor) const {
+const char *SOCKETS::get_host(int descriptor) const noexcept {
     const record_type *record = find_record(descriptor);
     return record ? record->host.data() : "";
 }
 
-const char *SOCKETS::get_port(int descriptor) const {
+const char *SOCKETS::get_port(int descriptor) const noexcept {
     const record_type *record = find_record(descriptor);
     return record ? record->port.data() : "";
 }
 
-void SOCKETS::freeze(int descriptor) {
+void SOCKETS::freeze(int descriptor) noexcept {
     set_flag(descriptor, FLAG::FROZEN);
 }
 
-void SOCKETS::unfreeze(int descriptor) {
+void SOCKETS::unfreeze(int descriptor) noexcept {
     if (!has_flag(descriptor, FLAG::DISCONNECT)
     &&  !has_flag(descriptor, FLAG::CLOSE)) {
         rem_flag(descriptor, FLAG::FROZEN);
     }
 }
 
-bool SOCKETS::is_frozen(int descriptor) const {
+bool SOCKETS::is_frozen(int descriptor) const noexcept {
     return has_flag(descriptor, FLAG::FROZEN);
 }
 
@@ -475,11 +485,13 @@ bool SOCKETS::connect(const char *host, const char *port, int group) noexcept {
     return descriptor != NO_DESCRIPTOR;
 }
 
-void SOCKETS::disconnect(int descriptor) {
+void SOCKETS::disconnect(int descriptor) noexcept {
     terminate(descriptor);
 }
 
-bool SOCKETS::swap_incoming(int descriptor, std::vector<uint8_t> &bytes) {
+bool SOCKETS::swap_incoming(
+    int descriptor, std::vector<uint8_t> &bytes
+) noexcept {
     const record_type *record = find_record(descriptor);
 
     if (record && record->incoming) {
@@ -495,7 +507,9 @@ bool SOCKETS::swap_incoming(int descriptor, std::vector<uint8_t> &bytes) {
     return false;
 }
 
-bool SOCKETS::swap_outgoing(int descriptor, std::vector<uint8_t> &bytes) {
+bool SOCKETS::swap_outgoing(
+    int descriptor, std::vector<uint8_t> &bytes
+) noexcept {
     const record_type *record = find_record(descriptor);
 
     if (record && record->outgoing) {
@@ -510,7 +524,7 @@ bool SOCKETS::swap_outgoing(int descriptor, std::vector<uint8_t> &bytes) {
 
 bool SOCKETS::append_outgoing(
     int descriptor, const uint8_t *buffer, size_t size
-) {
+) noexcept {
     const record_type *record = find_record(descriptor);
 
     if (record && record->outgoing) {
@@ -660,7 +674,7 @@ bool SOCKETS::serve(int timeout) noexcept {
     return true;
 }
 
-const char *SOCKETS::read(int descriptor) {
+const char *SOCKETS::read(int descriptor) noexcept {
     const record_type *record = find_record(descriptor);
 
     if (!record || record->incoming == nullptr || record->incoming->empty()) {
@@ -682,7 +696,7 @@ const char *SOCKETS::read(int descriptor) {
     return (const char *) cache.data();
 }
 
-void SOCKETS::write(int descriptor, const char *text) {
+void SOCKETS::write(int descriptor, const char *text) noexcept {
     const record_type *record = find_record(descriptor);
 
     if (!record || record->outgoing == nullptr) {
@@ -696,7 +710,7 @@ void SOCKETS::write(int descriptor, const char *text) {
     set_flag(descriptor, FLAG::WRITE);
 }
 
-void SOCKETS::writef(int descriptor, const char *fmt, ...) {
+void SOCKETS::writef(int descriptor, const char *fmt, ...) noexcept {
     char stackbuf[1024];
 
     std::va_list args;
@@ -768,7 +782,7 @@ void SOCKETS::writef(int descriptor, const char *fmt, ...) {
     delete [] heapbuf;
 }
 
-void SOCKETS::log(const char *fmt, ...) const {
+void SOCKETS::log(const char *fmt, ...) const noexcept {
     char stackbuf[256];
     char *bufptr = stackbuf;
     size_t bufsz = sizeof(stackbuf);
@@ -818,17 +832,17 @@ void SOCKETS::log(const char *fmt, ...) const {
     if (bufptr && bufptr != stackbuf) delete [] bufptr;
 }
 
-void SOCKETS::bug(const char *file, int line) const {
+void SOCKETS::bug(const char *file, int line) const noexcept {
     log("Forbidden condition met in %s on line %d.", file, line);
 }
 
-void SOCKETS::die(const char *file, int line) const {
+void SOCKETS::die(const char *file, int line) const noexcept {
     bug(file, line);
     fflush(nullptr);
     std::raise(SIGSEGV);
 }
 
-bool SOCKETS::handle_close(int descriptor) {
+bool SOCKETS::handle_close(int descriptor) noexcept {
     if (has_flag(descriptor, FLAG::RECONNECT)) {
         record_type &rec = get_record(descriptor);
 
@@ -882,7 +896,7 @@ bool SOCKETS::handle_close(int descriptor) {
     return true;
 }
 
-bool SOCKETS::handle_epoll(int epoll_descriptor, int timeout) {
+bool SOCKETS::handle_epoll(int epoll_descriptor, int timeout) noexcept {
     static constexpr const std::array blockers{
         static_cast<size_t>(FLAG::NEW_CONNECTION),
         static_cast<size_t>(FLAG::DISCONNECT),
@@ -1032,7 +1046,7 @@ bool SOCKETS::handle_epoll(int epoll_descriptor, int timeout) {
     return true;
 }
 
-bool SOCKETS::handle_read(int descriptor) {
+bool SOCKETS::handle_read(int descriptor) noexcept {
     record_type &record = get_record(descriptor);
 
     if (!record.incoming->empty()) {
@@ -1107,7 +1121,7 @@ bool SOCKETS::handle_read(int descriptor) {
     return true;
 }
 
-bool SOCKETS::handle_write(int descriptor) {
+bool SOCKETS::handle_write(int descriptor) noexcept {
     record_type &record = get_record(descriptor);
 
     std::vector<uint8_t> *outgoing = record.outgoing;
@@ -1170,7 +1184,7 @@ bool SOCKETS::handle_write(int descriptor) {
     return modify_epoll(descriptor, EPOLLIN|EPOLLOUT|EPOLLET|EPOLLRDHUP);
 }
 
-bool SOCKETS::handle_accept(int descriptor) {
+bool SOCKETS::handle_accept(int descriptor) noexcept {
     // New incoming connection detected.
     record_type &epoll_record = get_epoll_record();
     int epoll_descriptor = epoll_record.descriptor;
@@ -1329,7 +1343,7 @@ bool SOCKETS::handle_accept(int descriptor) {
 int SOCKETS::connect(
     const char *host, const char *port, int group, int ai_family, int ai_flags,
     const struct addrinfo *blacklist, const char *file, int line
-) {
+) noexcept {
     int epoll_descriptor = get_epoll_record().descriptor;
 
     std::vector<uint8_t> *incoming{new (std::nothrow) std::vector<uint8_t>};
@@ -1394,7 +1408,7 @@ int SOCKETS::connect(
     return descriptor;
 }
 
-void SOCKETS::terminate(int descriptor, const char *file, int line) {
+void SOCKETS::terminate(int descriptor, const char *file, int line) noexcept {
     if (descriptor == NO_DESCRIPTOR) return;
 
     if (has_flag(descriptor, FLAG::CLOSE)
@@ -1455,7 +1469,7 @@ void SOCKETS::terminate(int descriptor, const char *file, int line) {
 int SOCKETS::listen(
     const char *host, const char *port, int ai_family, int ai_flags,
     const char *file, int line
-) {
+) noexcept {
     int epoll_descriptor = get_epoll_record().descriptor;
     int descriptor = open_and_init(host, port, ai_family, ai_flags);
 
@@ -1544,7 +1558,7 @@ int SOCKETS::listen(
     return descriptor;
 }
 
-int SOCKETS::create_epoll() {
+int SOCKETS::create_epoll() noexcept {
     int epoll_descriptor = epoll_create1(0);
 
     if (epoll_descriptor < 0) {
@@ -1589,7 +1603,7 @@ int SOCKETS::create_epoll() {
     return epoll_descriptor;
 }
 
-bool SOCKETS::bind_to_epoll(int descriptor, int epoll_descriptor) {
+bool SOCKETS::bind_to_epoll(int descriptor, int epoll_descriptor) noexcept {
     if (descriptor == NO_DESCRIPTOR) return NO_DESCRIPTOR;
 
     record_type &record = get_record(epoll_descriptor);
@@ -1626,7 +1640,7 @@ bool SOCKETS::bind_to_epoll(int descriptor, int epoll_descriptor) {
 int SOCKETS::open_and_init(
     const char *host, const char *port, int ai_family, int ai_flags,
     const struct addrinfo *blacklist, const char *file, int line
-) {
+) noexcept {
     static constexpr const bool establish_nonblocking_connections = true;
     const bool accept_incoming_connections = host == nullptr;
 
@@ -1836,7 +1850,7 @@ int SOCKETS::open_and_init(
     return descriptor;
 }
 
-size_t SOCKETS::close_and_deinit(int descriptor) {
+size_t SOCKETS::close_and_deinit(int descriptor) noexcept {
     // Returns the number of descriptors successfully closed as a result.
 
     if (descriptor == NO_DESCRIPTOR) {
@@ -1974,7 +1988,7 @@ size_t SOCKETS::close_and_deinit(int descriptor) {
     return closed;
 }
 
-void SOCKETS::push(record_type record) {
+void SOCKETS::push(record_type record) noexcept {
     if (record.descriptor == NO_DESCRIPTOR) {
         return;
     }
@@ -1991,7 +2005,7 @@ void SOCKETS::push(record_type record) {
     set_group(descriptor, group);
 }
 
-SOCKETS::record_type SOCKETS::pop(int descriptor) {
+SOCKETS::record_type SOCKETS::pop(int descriptor) noexcept {
     if (descriptor == NO_DESCRIPTOR) {
         return make_record(NO_DESCRIPTOR, NO_DESCRIPTOR, 0);
     }
@@ -2034,7 +2048,9 @@ SOCKETS::record_type SOCKETS::pop(int descriptor) {
     return make_record(NO_DESCRIPTOR, NO_DESCRIPTOR, 0);
 }
 
-const SOCKETS::record_type *SOCKETS::find_record(int descriptor) const {
+const SOCKETS::record_type *SOCKETS::find_record(
+    int descriptor
+) const noexcept {
     size_t key = descriptor % descriptors.size();
 
     for (size_t i=0, sz=descriptors.at(key).size(); i<sz; ++i) {
@@ -2046,13 +2062,13 @@ const SOCKETS::record_type *SOCKETS::find_record(int descriptor) const {
     return nullptr;
 }
 
-SOCKETS::record_type *SOCKETS::find_record(int descriptor) {
+SOCKETS::record_type *SOCKETS::find_record(int descriptor) noexcept {
     return const_cast<record_type *>(
         static_cast<const SOCKETS &>(*this).find_record(descriptor)
     );
 }
 
-const SOCKETS::record_type *SOCKETS::find_epoll_record() const {
+const SOCKETS::record_type *SOCKETS::find_epoll_record() const noexcept {
     const record_type *epoll_record = nullptr;
 
     static constexpr const size_t flag_index{
@@ -2072,13 +2088,13 @@ const SOCKETS::record_type *SOCKETS::find_epoll_record() const {
     return epoll_record;
 }
 
-SOCKETS::record_type *SOCKETS::find_epoll_record() {
+SOCKETS::record_type *SOCKETS::find_epoll_record() noexcept {
     return const_cast<record_type *>(
         static_cast<const SOCKETS &>(*this).find_epoll_record()
     );
 }
 
-const SOCKETS::record_type &SOCKETS::get_record(int descriptor) const {
+const SOCKETS::record_type &SOCKETS::get_record(int descriptor) const noexcept {
     const record_type *rec = find_record(descriptor);
 
     if (!rec) die();
@@ -2086,7 +2102,7 @@ const SOCKETS::record_type &SOCKETS::get_record(int descriptor) const {
     return *rec;
 }
 
-SOCKETS::record_type &SOCKETS::get_record(int descriptor) {
+SOCKETS::record_type &SOCKETS::get_record(int descriptor) noexcept {
     record_type *rec = find_record(descriptor);
 
     if (!rec) die();
@@ -2094,7 +2110,7 @@ SOCKETS::record_type &SOCKETS::get_record(int descriptor) {
     return *rec;
 }
 
-const SOCKETS::record_type &SOCKETS::get_epoll_record() const {
+const SOCKETS::record_type &SOCKETS::get_epoll_record() const noexcept {
     const record_type *rec = find_epoll_record();
 
     if (!rec) die();
@@ -2102,7 +2118,7 @@ const SOCKETS::record_type &SOCKETS::get_epoll_record() const {
     return *rec;
 }
 
-SOCKETS::record_type &SOCKETS::get_epoll_record() {
+SOCKETS::record_type &SOCKETS::get_epoll_record() noexcept {
     record_type *rec = find_epoll_record();
 
     if (!rec) die();
@@ -2110,7 +2126,7 @@ SOCKETS::record_type &SOCKETS::get_epoll_record() {
     return *rec;
 }
 
-bool SOCKETS::modify_epoll(int descriptor, uint32_t events) {
+bool SOCKETS::modify_epoll(int descriptor, uint32_t events) noexcept {
     record_type &epoll_record = get_epoll_record();
     int epoll_descriptor = epoll_record.descriptor;
     epoll_event *event = &(epoll_record.events[0]);
@@ -2143,7 +2159,7 @@ bool SOCKETS::modify_epoll(int descriptor, uint32_t events) {
     return true;
 }
 
-bool SOCKETS::set_group(int descriptor, int group) {
+bool SOCKETS::set_group(int descriptor, int group) noexcept {
     record_type *rec = find_record(descriptor);
 
     if (!rec) return false;
@@ -2173,11 +2189,11 @@ bool SOCKETS::set_group(int descriptor, int group) {
     return true;
 }
 
-bool SOCKETS::rem_group(int descriptor) {
+bool SOCKETS::rem_group(int descriptor) noexcept {
     return set_group(descriptor, 0);
 }
 
-bool SOCKETS::set_flag(int descriptor, FLAG flag, bool value) {
+bool SOCKETS::set_flag(int descriptor, FLAG flag, bool value) noexcept {
     if (value == false) {
         return rem_flag(descriptor, flag);
     }
@@ -2211,7 +2227,7 @@ bool SOCKETS::set_flag(int descriptor, FLAG flag, bool value) {
     return true;
 }
 
-bool SOCKETS::rem_flag(int descriptor, FLAG flag) {
+bool SOCKETS::rem_flag(int descriptor, FLAG flag) noexcept {
     size_t index = static_cast<size_t>(flag);
 
     if (index > flags.size()) {
@@ -2237,7 +2253,7 @@ bool SOCKETS::rem_flag(int descriptor, FLAG flag) {
     return true;
 }
 
-bool SOCKETS::has_flag(const record_type &rec, const FLAG flag) const {
+bool SOCKETS::has_flag(const record_type &rec, const FLAG flag) const noexcept {
     size_t index = static_cast<size_t>(flag);
 
     if (index >= rec.flags.size()) {
@@ -2253,14 +2269,14 @@ bool SOCKETS::has_flag(const record_type &rec, const FLAG flag) const {
     return false;
 }
 
-bool SOCKETS::has_flag(int descriptor, const FLAG flag) const {
+bool SOCKETS::has_flag(int descriptor, const FLAG flag) const noexcept {
     const record_type *rec = find_record(descriptor);
     return rec ? has_flag(*rec, flag) : false;
 }
 
 constexpr SOCKETS::record_type SOCKETS::make_record(
     int descriptor, int parent, int group
-) {
+) noexcept {
 #if __cplusplus <= 201703L
     __extension__
 #endif
@@ -2288,7 +2304,7 @@ constexpr SOCKETS::record_type SOCKETS::make_record(
 
 constexpr SOCKETS::EVENT SOCKETS::make_event(
     int descriptor, EVENT::TYPE type, bool valid
-) {
+) noexcept {
     return
 #if __cplusplus <= 201703L
     __extension__
@@ -2302,7 +2318,7 @@ constexpr SOCKETS::EVENT SOCKETS::make_event(
 
 constexpr SOCKETS::flag_type SOCKETS::make_flag(
     int descriptor, FLAG index
-) {
+) noexcept {
     return
 #if __cplusplus <= 201703L
     __extension__
@@ -2313,7 +2329,7 @@ constexpr SOCKETS::flag_type SOCKETS::make_flag(
     };
 }
 
-bool SOCKETS::is_listed(const addrinfo &info, const addrinfo *list) {
+bool SOCKETS::is_listed(const addrinfo &info, const addrinfo *list) noexcept {
     for (const struct addrinfo *next = list; next; next = next->ai_next) {
         if (info.ai_flags != next->ai_flags
         ||  info.ai_family != next->ai_family
