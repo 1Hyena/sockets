@@ -25,8 +25,8 @@ notification mechanism.
 
 * **Scalable** —
   There is no intrinsic limit on the number of sockets managed by the library.
-  In other words, the CPU usage of the library is not affected by the number of
-  established connections.
+  In other words, the CPU usage of the library is not significantly affected by
+  the number of established connections.
 
 
 # Usage ########################################################################
