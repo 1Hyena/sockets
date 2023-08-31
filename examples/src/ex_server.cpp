@@ -52,38 +52,49 @@ int main(int argc, char **argv) {
 }
 
 static void handle(SOCKETS &sockets) {
-    int d = SOCKETS::NO_DESCRIPTOR;
-
-    while ((d = sockets.next_disconnection()) != SOCKETS::NO_DESCRIPTOR) {
-        printf(
-            "Disconnected %s:%s (descriptor %d).\n",
-            sockets.get_host(d), sockets.get_port(d), d
-        );
-    }
-
-    while ((d = sockets.next_connection()) != SOCKETS::NO_DESCRIPTOR) {
-        printf(
-            "New connection from %s:%s (descriptor %d).\n",
-            sockets.get_host(d), sockets.get_port(d), d
-        );
-
-        sockets.writef(
-            d, "Hello, %s:%s!\n\r", sockets.get_host(d), sockets.get_port(d)
-        );
-    }
-
+    SOCKETS::EVENT ev;
     std::vector<uint8_t> buffer;
 
-    while ((d = sockets.next_incoming()) != SOCKETS::NO_DESCRIPTOR) {
-        sockets.swap_incoming(d, buffer);
+    while ((ev = sockets.next_event()).valid) {
+        int d = ev.descriptor;
 
-        printf(
-            "Received %lu byte%s from descriptor %d.\n",
-            buffer.size(), buffer.size() == 1 ? "" : "s", d
-        );
+        switch (ev.type) {
+            case SOCKETS::EV_CONNECTION: {
+                printf(
+                    "New connection from %s:%s (descriptor %d).\n",
+                    sockets.get_host(d), sockets.get_port(d), d
+                );
 
-        sockets.append_outgoing(d, buffer.data(), buffer.size());
+                sockets.writef(
+                    d, "Hello, %s:%s!\n",
+                    sockets.get_host(d), sockets.get_port(d)
+                );
 
-        buffer.clear();
+                continue;
+            }
+            case SOCKETS::EV_DISCONNECTION: {
+                printf(
+                    "Disconnected %s:%s (descriptor %d).\n",
+                    sockets.get_host(d), sockets.get_port(d), d
+                );
+
+                continue;
+            }
+            case SOCKETS::EV_INCOMING: {
+                sockets.swap_incoming(d, buffer);
+
+                printf(
+                    "Received %lu byte%s from descriptor %d.\n",
+                    buffer.size(), buffer.size() == 1 ? "" : "s", d
+                );
+
+                sockets.append_outgoing(d, buffer.data(), buffer.size());
+
+                buffer.clear();
+
+                continue;
+            }
+            default: continue;
+        }
     }
 }

@@ -19,15 +19,18 @@ The following piece of code is the most minimalistic example of a TCP server
 using the SOCKETS library.
 
 ```C++
-SOCKETS sockets;
-sockets.init();
 sockets.listen("4000");
 
 while (sockets.serve()) {
-    for (int d; (d = sockets.next_connection()) != SOCKETS::NO_DESCRIPTOR;) {
+    SOCKETS::EVENT ev{ sockets.next_event() };
+
+    if (ev.type == SOCKETS::EV_CONNECTION) {
         sockets.writef(
-            d, "Hello, %s:%s!\n\r", sockets.get_host(d), sockets.get_port(d)
+            ev.descriptor, "Hello, %s:%s!\n",
+            sockets.get_host(ev.descriptor), sockets.get_port(ev.descriptor)
         );
+
+        sockets.disconnect(ev.descriptor);
     }
 }
 ```
@@ -36,19 +39,16 @@ A really simple TCP client that doesn't do any error checking would look like
 the following code snippet.
 
 ```C++
-SOCKETS sockets;
-sockets.init();
 sockets.connect("localhost", "4000");
 
 while (sockets.serve()) {
-    for (int d; (d = sockets.next_connection()) != SOCKETS::NO_DESCRIPTOR;) {
-        printf(
-            "Connected to %s:%s.\n", sockets.get_host(d), sockets.get_port(d)
-        );
-    }
+    SOCKETS::EVENT ev{ sockets.next_event() };
 
-    for (int d; (d = sockets.next_incoming()) != SOCKETS::NO_DESCRIPTOR;) {
-        printf("%s", sockets.read(d));
+    if (ev.type == SOCKETS::EV_CONNECTION) {
+        printf(
+            "Connected to %s:%s.\n",
+            sockets.get_host(ev.descriptor), sockets.get_port(ev.descriptor)
+        );
     }
 }
 ```

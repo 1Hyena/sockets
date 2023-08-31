@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "../../sockets.h"
 
-static void handle(SOCKETS &sockets);
-
 int main(int argc, char **argv) {
     static constexpr const char *SERVER_HOST = "localhost";
     static constexpr const char *SERVER_PORT = "4000";
@@ -28,40 +26,63 @@ int main(int argc, char **argv) {
         constexpr int timeout_milliseconds = 3000;
         bool connected = false;
         bool success;
-        int d;
+        SOCKETS::EVENT ev;
 
         printf("%s\n", "Waiting for socket events.");
 
-        while (true == (success = sockets.serve(timeout_milliseconds))) {
-            while ((d = sockets.next_connection()) != SOCKETS::NO_DESCRIPTOR) {
-                printf(
-                    "Connected to %s:%s.\n",
-                    sockets.get_host(d), sockets.get_port(d)
-                );
-
-                connected = true;
-                sockets.write(d, "Ahoy!\n");
-            }
-
-            if ((d = sockets.next_disconnection()) != SOCKETS::NO_DESCRIPTOR) {
-                if (connected) {
-                    printf(
-                        "Disconnected from %s:%s.\n",
-                        sockets.get_host(d), sockets.get_port(d)
-                    );
-
-                    goto TheEnd;
-                }
-                else break;
-            }
-
+        while ((success = sockets.serve(timeout_milliseconds)) == true) {
             if (sockets.idle()) {
                 printf(
                     "Nothing happened in the last %d seconds.\n",
                     timeout_milliseconds / 1000
                 );
+
+                continue;
             }
-            else handle(sockets);
+
+            while ((ev = sockets.next_event()).valid) {
+                int d = ev.descriptor;
+
+                switch (ev.type) {
+                    case SOCKETS::EV_CONNECTION: {
+                        printf(
+                            "Connected to %s:%s.\n",
+                            sockets.get_host(d), sockets.get_port(d)
+                        );
+
+                        connected = true;
+                        sockets.write(d, "Ahoy!\n");
+
+                        continue;
+                    }
+                    case SOCKETS::EV_DISCONNECTION: {
+                        if (connected) {
+                            printf(
+                                "Disconnected from %s:%s.\n",
+                                sockets.get_host(d), sockets.get_port(d)
+                            );
+
+                            goto TheEnd;
+                        }
+
+                        break;
+                    }
+                    case SOCKETS::EV_INCOMING: {
+                        printf(
+                            "%s:%s> %s\n",
+                            sockets.get_host(d), sockets.get_port(d),
+                            sockets.read(d)
+                        );
+
+                        continue;
+                    }
+                    default: continue;
+                }
+
+                break;
+            }
+
+            if (ev.type == SOCKETS::EV_DISCONNECTION) break;
         }
 
         if (!success) {
@@ -78,27 +99,4 @@ int main(int argc, char **argv) {
     sockets.deinit();
 
     return EXIT_SUCCESS;
-}
-
-static void handle(SOCKETS &sockets) {
-    int d = SOCKETS::NO_DESCRIPTOR;
-
-    std::vector<uint8_t> buf;
-
-    while ((d = sockets.next_incoming()) != SOCKETS::NO_DESCRIPTOR) {
-        sockets.swap_incoming(d, buf);
-
-        while (!buf.empty() && (buf.back() == '\n' || buf.back() == '\r')) {
-            buf.pop_back();
-        }
-
-        buf.push_back(0);
-
-        printf(
-            "%s:%s> %s\n",
-            sockets.get_host(d), sockets.get_port(d), (const char *) buf.data()
-        );
-
-        buf.clear();
-    }
 }

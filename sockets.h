@@ -40,11 +40,31 @@
 #include <cerrno>
 #include <limits>
 #include <cstdio>
+#include <iostream>
 
 class SOCKETS {
     public:
     static constexpr const char *VERSION = "1.0";
     static constexpr const int NO_DESCRIPTOR = -1;
+
+    struct EVENT {
+        enum class TYPE : uint8_t {
+            NONE = 0,
+            CONNECTION,
+            DISCONNECTION,
+            INCOMING
+        };
+
+        int descriptor;
+        TYPE type;
+        bool valid:1;
+    };
+
+    static constexpr const EVENT::TYPE
+        EV_NONE          = EVENT::TYPE::NONE,
+        EV_CONNECTION    = EVENT::TYPE::CONNECTION,
+        EV_DISCONNECTION = EVENT::TYPE::DISCONNECTION,
+        EV_INCOMING      = EVENT::TYPE::INCOMING;
 
     SOCKETS();
     ~SOCKETS();
@@ -59,9 +79,7 @@ class SOCKETS {
     bool serve(int timeout =-1);
     bool idle() const;
 
-    int next_connection();
-    int next_disconnection();
-    int next_incoming();
+    struct EVENT next_event();
 
     const char *read(int descriptor);
     void write(int descriptor, const char *text);
@@ -131,11 +149,15 @@ class SOCKETS {
         FLAG index;
     };
 
-    inline static constexpr record_type make_record(
+    inline static constexpr struct record_type make_record(
         int descriptor, int parent, int group
     );
 
-    inline static constexpr flag_type make_flag(
+    inline static constexpr struct EVENT make_event(
+        int descriptor, EVENT::TYPE type, bool valid =true
+    );
+
+    inline static constexpr struct flag_type make_flag(
         int descriptor =NO_DESCRIPTOR, FLAG index =FLAG::NONE
     );
 
@@ -162,6 +184,10 @@ class SOCKETS {
         int descriptor,
         const char *file =__builtin_FILE(), int line =__builtin_LINE()
     );
+
+    int next_connection();
+    int next_disconnection();
+    int next_incoming();
 
     int create_epoll();
     bool bind_to_epoll(int descriptor, int epoll_descriptor);
@@ -216,7 +242,9 @@ SOCKETS::SOCKETS() : log_callback(nullptr) {
 
 SOCKETS::~SOCKETS() {
     if (find_epoll_record()) {
-        log("%s", "destroying instance without having it deinitialized first");
+        log(
+            "%s\n", "destroying instance without having it deinitialized first"
+        );
     }
 }
 
@@ -310,6 +338,28 @@ void SOCKETS::set_logger(const std::function<void(const char *text)>& log_cb) {
 
 int SOCKETS::listen(const char *port, int family, int flags) {
     return listen(nullptr, port, family, flags);
+}
+
+struct SOCKETS::EVENT SOCKETS::next_event() {
+    int d;
+
+    record_type &epoll_record = get_epoll_record();
+    int epoll_descriptor = epoll_record.descriptor;
+    rem_flag(epoll_descriptor, FLAG::FUSED);
+
+    while (( d = next_connection() ) != NO_DESCRIPTOR) {
+        return make_event(d, EV_CONNECTION);
+    }
+
+    while (( d = next_incoming() ) != NO_DESCRIPTOR) {
+        return make_event(d, EV_INCOMING);
+    }
+
+    while (( d = next_disconnection() ) != NO_DESCRIPTOR) {
+        return make_event(d, EV_DISCONNECTION);
+    }
+
+    return make_event(NO_DESCRIPTOR, EV_NONE, false);
 }
 
 int SOCKETS::next_connection() {
@@ -717,8 +767,6 @@ void SOCKETS::writef(int descriptor, const char *fmt, ...) {
 }
 
 void SOCKETS::log(const char *fmt, ...) const {
-    if (!log_callback) return;
-
     char stackbuf[256];
     char *bufptr = stackbuf;
     size_t bufsz = sizeof(stackbuf);
@@ -730,17 +778,37 @@ void SOCKETS::log(const char *fmt, ...) const {
         va_end(args);
 
         if ((cx >= 0 && (size_t)cx < bufsz) || cx < 0) {
-            log_callback(bufptr);
+            if (log_callback) {
+                log_callback(bufptr);
+            }
+            else {
+                std::cerr << bufptr;
+            }
+
             break;
         }
 
         if (bufptr == stackbuf) {
             bufsz = cx + 1;
             bufptr = new (std::nothrow) char[bufsz];
-            if (!bufptr) log_callback("out of memory");
+
+            if (!bufptr) {
+                if (log_callback) {
+                    log_callback("out of memory");
+                }
+                else {
+                    std::cerr << bufptr;
+                }
+            }
         }
         else {
-            log_callback(bufptr);
+            if (log_callback) {
+                log_callback(bufptr);
+            }
+            else {
+                std::cerr << bufptr;
+            }
+
             break;
         }
     }
@@ -829,7 +897,7 @@ bool SOCKETS::handle_epoll(int epoll_descriptor, int timeout) {
                 return true;
             }
 
-            log("Cannot serve sockets if there are unhandled events.");
+            log("Cannot serve sockets if there are unhandled events.\n");
 
             return false;
         }
@@ -2216,6 +2284,20 @@ constexpr SOCKETS::record_type SOCKETS::make_record(
     return record;
 }
 
+constexpr SOCKETS::EVENT SOCKETS::make_event(
+    int descriptor, EVENT::TYPE type, bool valid
+) {
+    return
+#if __cplusplus <= 201703L
+    __extension__
+#endif
+    EVENT{
+        .descriptor = descriptor,
+        .type = type,
+        .valid = valid
+    };
+}
+
 constexpr SOCKETS::flag_type SOCKETS::make_flag(
     int descriptor, FLAG index
 ) {
@@ -2225,7 +2307,7 @@ constexpr SOCKETS::flag_type SOCKETS::make_flag(
 #endif
     flag_type{
         .descriptor = descriptor,
-        .index      = index
+        .index = index
     };
 }
 
