@@ -5,6 +5,24 @@ library for the creation and acceptance of TCP connections. The library makes
 use of the *epoll* Linux kernel system call to achieve a scalable I/O event
 notification mechanism.
 
+* Single-Threaded —
+  Unlike most networking libraries, this one does not maintain a pool of threads
+  in order to concurrently manage multiple connections.
+
+* Non-Throwing —
+  The SOCKETS class has all of its methods specified as *noexcept*, giving it a
+  no-throw exception guarantee. In other words, it's perfectly fine to use this
+  library in a program that is compiled with the `-fno-exceptions` flag.
+
+* Signal-Compatible —
+  This library can safely be used by a program that uses signals. It makes the
+  necessary calls to _sigprocmask_ to block all signals before executing tasks
+  that must not be interrupted by signals.
+
+* Header-Only —
+  Everything in this library is provided by a single self-contained header file
+  named [sockets.h](sockets.h).
+
 
 # Usage ########################################################################
 
