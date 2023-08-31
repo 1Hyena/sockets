@@ -95,7 +95,7 @@ required dependencies listed in the following section.
 
 ## Requirements ################################################################
 
-The only requirements are a C++17 compliant compiler and Linux kernel headers.
+The library requires a C++17 compliant GNU Compiler and Linux kernel headers.
 
 
 # License ######################################################################

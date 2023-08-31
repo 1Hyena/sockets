@@ -66,18 +66,20 @@ class SOCKETS {
         EV_DISCONNECTION = EVENT::TYPE::DISCONNECTION,
         EV_INCOMING      = EVENT::TYPE::INCOMING;
 
-    SOCKETS();
+    SOCKETS() noexcept;
     ~SOCKETS();
 
-    bool init();
-    bool deinit();
+    bool init() noexcept;
+    bool deinit() noexcept;
 
-    void set_logger(const std::function<void(const char *)>& log_callback);
+    void set_logger(void (*callback)(const char *) noexcept) noexcept;
 
-    int listen(const char *port, int family =AF_UNSPEC, int flags =AI_PASSIVE);
-    bool connect(const char *host, const char *port, int group =0);
-    bool serve(int timeout =-1);
-    bool idle() const;
+    int listen(
+        const char *port, int family =AF_UNSPEC, int flags =AI_PASSIVE
+    ) noexcept;
+    bool connect(const char *host, const char *port, int group =0) noexcept;
+    bool serve(int timeout =-1) noexcept;
+    bool idle() const noexcept;
 
     struct EVENT next_event();
 
@@ -237,7 +239,7 @@ class SOCKETS {
     sigset_t sigset_orig;
 };
 
-SOCKETS::SOCKETS() : log_callback(nullptr) {
+SOCKETS::SOCKETS() noexcept : log_callback(nullptr) {
 }
 
 SOCKETS::~SOCKETS() {
@@ -248,7 +250,7 @@ SOCKETS::~SOCKETS() {
     }
 }
 
-bool SOCKETS::init() {
+bool SOCKETS::init() noexcept {
     if (find_epoll_record()) {
         log("%s: already initialized", __FUNCTION__);
 
@@ -307,7 +309,7 @@ bool SOCKETS::init() {
     return true;
 }
 
-bool SOCKETS::deinit() {
+bool SOCKETS::deinit() noexcept {
     if (!find_epoll_record()) {
         log("%s: already deinitialized", __FUNCTION__);
 
@@ -332,11 +334,11 @@ bool SOCKETS::deinit() {
     return success;
 }
 
-void SOCKETS::set_logger(const std::function<void(const char *text)>& log_cb) {
-    log_callback = log_cb;
+void SOCKETS::set_logger(void (*callback)(const char *) noexcept) noexcept {
+    log_callback = callback;
 }
 
-int SOCKETS::listen(const char *port, int family, int flags) {
+int SOCKETS::listen(const char *port, int family, int flags) noexcept {
     return listen(nullptr, port, family, flags);
 }
 
@@ -462,12 +464,12 @@ bool SOCKETS::is_frozen(int descriptor) const {
     return has_flag(descriptor, FLAG::FROZEN);
 }
 
-bool SOCKETS::idle() const {
+bool SOCKETS::idle() const noexcept {
     const record_type *epoll_record = find_epoll_record();
     return epoll_record ? has_flag(*epoll_record, FLAG::TIMEOUT) : false;
 }
 
-bool SOCKETS::connect(const char *host, const char *port, int group) {
+bool SOCKETS::connect(const char *host, const char *port, int group) noexcept {
     int descriptor = connect(host, port, group, AF_UNSPEC, 0);
 
     return descriptor != NO_DESCRIPTOR;
@@ -528,7 +530,7 @@ bool SOCKETS::append_outgoing(
     return false;
 }
 
-bool SOCKETS::serve(int timeout) {
+bool SOCKETS::serve(int timeout) noexcept {
     static constexpr const size_t flg_connect_index{
         static_cast<size_t>(FLAG::NEW_CONNECTION)
     };

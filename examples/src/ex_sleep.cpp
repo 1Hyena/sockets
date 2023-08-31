@@ -13,7 +13,7 @@ int main(int argc, char **argv) {
     }
 
     sockets.set_logger(
-        [](const char *txt) {
+        [](const char *txt) noexcept {
             printf("Sockets: %s\n", txt);
         }
     );
