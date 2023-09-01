@@ -93,13 +93,13 @@ class SOCKETS final {
         int descriptor, const uint8_t *buffer, size_t size
     ) noexcept;
 
-    bool is_listener(int descriptor) const noexcept;
-    bool is_frozen(int descriptor) const noexcept;
-    int get_group(int descriptor) const noexcept;
-    size_t get_group_size(int group) const noexcept;
-    int get_listener(int descriptor) const noexcept;
-    const char *get_host(int descriptor) const noexcept;
-    const char *get_port(int descriptor) const noexcept;
+    [[nodiscard]] bool is_listener(int descriptor) const noexcept;
+    [[nodiscard]] bool is_frozen(int descriptor) const noexcept;
+    [[nodiscard]] int get_group(int descriptor) const noexcept;
+    [[nodiscard]] size_t get_group_size(int group) const noexcept;
+    [[nodiscard]] int get_listener(int descriptor) const noexcept;
+    [[nodiscard]] const char *get_host(int descriptor) const noexcept;
+    [[nodiscard]] const char *get_port(int descriptor) const noexcept;
 
     void freeze(int descriptor) noexcept;
     void unfreeze(int descriptor) noexcept;
