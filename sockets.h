@@ -28,19 +28,17 @@
 #include <array>
 #include <vector>
 #include <string>
-#include <algorithm>
-#include <functional>
-#include <netdb.h>
-#include <sys/epoll.h>
 #include <unordered_map>
+#include <limits>
+
 #include <csignal>
 #include <cstring>
 #include <cstdarg>
-#include <unistd.h>
 #include <cerrno>
-#include <limits>
 #include <cstdio>
-#include <iostream>
+
+#include <sys/epoll.h>
+#include <netdb.h>
 
 class SOCKETS final {
     public:
@@ -236,7 +234,7 @@ class SOCKETS final {
         const char *file =__builtin_FILE(), int line =__builtin_LINE()
     ) const noexcept;
 
-    std::function<void(const char *text)> log_callback;
+    void (*log_callback)(const char *text) noexcept;
     std::unordered_map<int, size_t> groups;
     std::array<std::vector<record_type>, 1024> descriptors;
     std::array<
@@ -798,7 +796,7 @@ void SOCKETS::log(const char *fmt, ...) const noexcept {
                 log_callback(bufptr);
             }
             else {
-                std::cerr << bufptr;
+                ::write(STDERR_FILENO, bufptr, strlen(bufptr));
             }
 
             break;
@@ -809,11 +807,13 @@ void SOCKETS::log(const char *fmt, ...) const noexcept {
             bufptr = new (std::nothrow) char[bufsz];
 
             if (!bufptr) {
+                const char *OOM = "out of memory";
+
                 if (log_callback) {
-                    log_callback("out of memory");
+                    log_callback(OOM);
                 }
                 else {
-                    std::cerr << bufptr;
+                    ::write(STDERR_FILENO, OOM, strlen(OOM));
                 }
             }
         }
@@ -822,7 +822,7 @@ void SOCKETS::log(const char *fmt, ...) const noexcept {
                 log_callback(bufptr);
             }
             else {
-                std::cerr << bufptr;
+                ::write(STDERR_FILENO, bufptr, strlen(bufptr));
             }
 
             break;
@@ -1935,39 +1935,35 @@ size_t SOCKETS::close_and_deinit(int descriptor) noexcept {
                 }
             }
 
-            std::for_each(
-                to_be_closed.begin(),
-                to_be_closed.end(),
-                [&](int d) {
-                    retval = close(d);
+            for (int d : to_be_closed) {
+                retval = close(d);
 
-                    if (retval == -1) {
-                        int code = errno;
-                        log(
-                            "close(%d): %s (%s:%d)", d,
-                            strerror(code), __FILE__, __LINE__
-                        );
-                    }
-                    else if (retval != 0) {
-                        log(
-                            "close(%d): unexpected return value %d (%s:%d)",
-                            d, retval, __FILE__, __LINE__
-                        );
-                    }
-                    else {
-                        record = pop(d);
-
-                        if (record.descriptor == NO_DESCRIPTOR) {
-                            log(
-                                "descriptor %d closed but record not found "
-                                "(%s:%d)", d, __FILE__, __LINE__
-                            );
-                        }
-
-                        ++closed;
-                    }
+                if (retval == -1) {
+                    int code = errno;
+                    log(
+                        "close(%d): %s (%s:%d)", d,
+                        strerror(code), __FILE__, __LINE__
+                    );
                 }
-            );
+                else if (retval != 0) {
+                    log(
+                        "close(%d): unexpected return value %d (%s:%d)",
+                        d, retval, __FILE__, __LINE__
+                    );
+                }
+                else {
+                    record = pop(d);
+
+                    if (record.descriptor == NO_DESCRIPTOR) {
+                        log(
+                            "descriptor %d closed but record not found "
+                            "(%s:%d)", d, __FILE__, __LINE__
+                        );
+                    }
+
+                    ++closed;
+                }
+            }
         }
     }
 
