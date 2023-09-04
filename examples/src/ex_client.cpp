@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "../../sockets.h"
+#include <cstdlib>
 
 int main(int argc, char **argv) {
     static constexpr const char *SERVER_HOST = "localhost";

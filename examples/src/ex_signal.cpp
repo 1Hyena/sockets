@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "../../sockets.h"
+#include <cstdlib>
 
 void signal_handler(int sig) {
     static const char *text = "A signal has been caught!\n";

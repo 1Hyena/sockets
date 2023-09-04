@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "../../sockets.h"
+#include <cstdlib>
 
 int main(int argc, char **argv) {
     constexpr int timeout_milliseconds = 10000;

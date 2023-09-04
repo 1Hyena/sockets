@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "../../sockets.h"
+#include <cstdlib>
 
 static void handle(SOCKETS &sockets);
 
