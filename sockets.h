@@ -25,7 +25,6 @@
 #ifndef SOCKETS_H_05_01_2023
 #define SOCKETS_H_05_01_2023
 
-#include <array>
 #include <vector>
 #include <string>
 #include <unordered_map>
@@ -132,12 +131,12 @@ class SOCKETS final {
     };
 
     struct record_type {
-        std::array<uint32_t, static_cast<size_t>(FLAG::MAX_FLAGS)> flags;
+        uint32_t flags[static_cast<size_t>(FLAG::MAX_FLAGS)];
         epoll_event *events;
         std::vector<uint8_t> *incoming;
         std::vector<uint8_t> *outgoing;
-        std::array<char, NI_MAXHOST> host;
-        std::array<char, NI_MAXSERV> port;
+        char host[NI_MAXHOST];
+        char port[NI_MAXSERV];
         int descriptor;
         int parent;
         int group;
@@ -236,11 +235,8 @@ class SOCKETS final {
 
     void (*log_callback)(const char *text) noexcept;
     std::unordered_map<int, size_t> groups;
-    std::array<std::vector<record_type>, 1024> descriptors;
-    std::array<
-        std::vector<flag_type>,
-        static_cast<size_t>(FLAG::MAX_FLAGS)
-    > flags;
+    std::vector<record_type> descriptors[1024];
+    std::vector<flag_type> flags[static_cast<size_t>(FLAG::MAX_FLAGS)];
     std::vector<uint8_t> cache;
     sigset_t sigset_all;
     sigset_t sigset_none;
@@ -326,7 +322,7 @@ bool SOCKETS::deinit() noexcept {
 
     bool success = true;
 
-    for (size_t key_hash=0; key_hash<descriptors.size(); ++key_hash) {
+    for (size_t key_hash=0; key_hash<std::size(descriptors); ++key_hash) {
         while (!descriptors[key_hash].empty()) {
             int descriptor = descriptors[key_hash].back().descriptor;
 
@@ -449,12 +445,12 @@ int SOCKETS::get_listener(int descriptor) const noexcept {
 
 const char *SOCKETS::get_host(int descriptor) const noexcept {
     const record_type *record = find_record(descriptor);
-    return record ? record->host.data() : "";
+    return record ? record->host : "";
 }
 
 const char *SOCKETS::get_port(int descriptor) const noexcept {
     const record_type *record = find_record(descriptor);
-    return record ? record->port.data() : "";
+    return record ? record->port : "";
 }
 
 void SOCKETS::freeze(int descriptor) noexcept {
@@ -560,7 +556,7 @@ bool SOCKETS::serve(int timeout) noexcept {
 
     std::vector<int> recbuf;
 
-    for (size_t i=0; i<flags.size(); ++i) {
+    for (size_t i=0; i<std::size(flags); ++i) {
         FLAG flag = static_cast<FLAG>(i);
 
         switch (flag) {
@@ -897,7 +893,7 @@ bool SOCKETS::handle_close(int descriptor) noexcept {
 }
 
 bool SOCKETS::handle_epoll(int epoll_descriptor, int timeout) noexcept {
-    static constexpr const std::array blockers{
+    static constexpr const size_t blockers[]{
         static_cast<size_t>(FLAG::NEW_CONNECTION),
         static_cast<size_t>(FLAG::DISCONNECT),
         static_cast<size_t>(FLAG::INCOMING)
@@ -1285,8 +1281,8 @@ bool SOCKETS::handle_accept(int descriptor) noexcept {
 
     int retval = getnameinfo(
         &in_addr, in_len,
-        client_record.host.data(), socklen_t(client_record.host.size()),
-        client_record.port.data(), socklen_t(client_record.port.size()),
+        client_record.host, socklen_t(std::size(client_record.host)),
+        client_record.port, socklen_t(std::size(client_record.port)),
         NI_NUMERICHOST|NI_NUMERICSERV
     );
 
@@ -1379,14 +1375,14 @@ int SOCKETS::connect(
     record.incoming = incoming;
     record.outgoing = outgoing;
 
-    if (record.host.front() == '\0') {
-        strncpy(record.host.data(), host, record.host.size()-1);
-        record.host.back() = '\0';
+    if (record.host[0] == '\0') {
+        strncpy(record.host, host, std::size(record.host)-1);
+        record.host[std::size(record.host)-1] = '\0';
     }
 
-    if (record.port.front() == '\0') {
-        strncpy(record.port.data(), port, record.port.size()-1);
-        record.port.back() = '\0';
+    if (record.port[0] == '\0') {
+        strncpy(record.port, port, std::size(record.port)-1);
+        record.port[std::size(record.port)-1] = '\0';
     }
 
     if (!bind_to_epoll(descriptor, epoll_descriptor)) {
@@ -1452,7 +1448,7 @@ void SOCKETS::terminate(int descriptor, const char *file, int line) noexcept {
     }
 
     if (is_listener(descriptor)) {
-        for (size_t key=0; key<descriptors.size(); ++key) {
+        for (size_t key=0; key<std::size(descriptors); ++key) {
             for (size_t i=0, sz=descriptors[key].size(); i<sz; ++i) {
                 const record_type &rec = descriptors[key][i];
 
@@ -1538,8 +1534,8 @@ int SOCKETS::listen(
         else {
             retval = getnameinfo(
                 &in_addr, in_len,
-                record->host.data(), socklen_t(record->host.size()),
-                record->port.data(), socklen_t(record->port.size()),
+                record->host, socklen_t(std::size(record->host)),
+                record->port, socklen_t(std::size(record->port)),
                 NI_NUMERICHOST|NI_NUMERICSERV
             );
 
@@ -1923,7 +1919,7 @@ size_t SOCKETS::close_and_deinit(int descriptor) noexcept {
         if (close_children_of != NO_DESCRIPTOR) {
             std::vector<int> to_be_closed;
 
-            for (size_t key=0; key<descriptors.size(); ++key) {
+            for (size_t key=0; key<std::size(descriptors); ++key) {
                 for (size_t i=0, sz=descriptors[key].size(); i<sz; ++i) {
                     const record_type &rec = descriptors[key][i];
 
@@ -1993,7 +1989,7 @@ void SOCKETS::push(record_type record) noexcept {
     int group = record.group;
 
     size_t descriptor_key{
-        descriptor % descriptors.size()
+        descriptor % std::size(descriptors)
     };
 
     descriptors[descriptor_key].emplace_back(record);
@@ -2006,7 +2002,7 @@ SOCKETS::record_type SOCKETS::pop(int descriptor) noexcept {
         return make_record(NO_DESCRIPTOR, NO_DESCRIPTOR, 0);
     }
 
-    size_t key_hash = descriptor % descriptors.size();
+    size_t key_hash = descriptor % std::size(descriptors);
 
     for (size_t i=0, sz=descriptors[key_hash].size(); i<sz; ++i) {
         const record_type &rec = descriptors[key_hash][i];
@@ -2016,7 +2012,7 @@ SOCKETS::record_type SOCKETS::pop(int descriptor) noexcept {
         int parent_descriptor = rec.parent;
 
         // First, let's free the flags.
-        for (size_t j=0, fsz=flags.size(); j<fsz; ++j) {
+        for (size_t j=0, fsz=std::size(flags); j<fsz; ++j) {
             rem_flag(rec.descriptor, static_cast<FLAG>(j));
         }
 
@@ -2047,12 +2043,12 @@ SOCKETS::record_type SOCKETS::pop(int descriptor) noexcept {
 const SOCKETS::record_type *SOCKETS::find_record(
     int descriptor
 ) const noexcept {
-    size_t key = descriptor % descriptors.size();
+    size_t key = descriptor % std::size(descriptors);
 
-    for (size_t i=0, sz=descriptors.at(key).size(); i<sz; ++i) {
-        if (descriptors.at(key).at(i).descriptor != descriptor) continue;
+    for (size_t i=0, sz=descriptors[key].size(); i<sz; ++i) {
+        if (descriptors[key].at(i).descriptor != descriptor) continue;
 
-        return &(descriptors.at(key).at(i));
+        return &(descriptors[key].at(i));
     }
 
     return nullptr;
@@ -2196,7 +2192,7 @@ bool SOCKETS::set_flag(int descriptor, FLAG flag, bool value) noexcept {
 
     size_t index = static_cast<size_t>(flag);
 
-    if (index > flags.size()) {
+    if (index > std::size(flags)) {
         return false;
     }
 
@@ -2226,7 +2222,7 @@ bool SOCKETS::set_flag(int descriptor, FLAG flag, bool value) noexcept {
 bool SOCKETS::rem_flag(int descriptor, FLAG flag) noexcept {
     size_t index = static_cast<size_t>(flag);
 
-    if (index > flags.size()) {
+    if (index > std::size(flags)) {
         return false;
     }
 
@@ -2252,7 +2248,7 @@ bool SOCKETS::rem_flag(int descriptor, FLAG flag) noexcept {
 bool SOCKETS::has_flag(const record_type &rec, const FLAG flag) const noexcept {
     size_t index = static_cast<size_t>(flag);
 
-    if (index >= rec.flags.size()) {
+    if (index >= std::size(rec.flags)) {
         return false;
     }
 
@@ -2291,7 +2287,7 @@ constexpr SOCKETS::record_type SOCKETS::make_record(
         .blacklist  = nullptr
     };
 
-    for (size_t i = 0; i != record.flags.size(); ++i) {
+    for (size_t i = 0; i != std::size(record.flags); ++i) {
         record.flags[i] = std::numeric_limits<uint32_t>::max();
     }
 
