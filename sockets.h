@@ -109,7 +109,7 @@ class SOCKETS final {
     enum class ERROR : uint8_t {
         NONE = 0,
         OUT_OF_MEMORY,
-        FATAL
+        UNDEFINED_BEHAVIOR
     };
 
     enum class FLAG : uint8_t {
@@ -977,7 +977,7 @@ SOCKETS::ERROR SOCKETS::die(const char *file, int line) const noexcept {
     bug(file, line);
     fflush(nullptr);
     std::raise(SIGSEGV);
-    return ERROR::FATAL;
+    return ERROR::UNDEFINED_BEHAVIOR;
 }
 
 void SOCKETS::out_of_memory(const char *file, int line) const noexcept {
