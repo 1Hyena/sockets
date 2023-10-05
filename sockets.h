@@ -124,49 +124,57 @@ class SOCKETS final {
         DISCONNECT     =  7,
         CLOSE          =  8,
         INCOMING       =  9,
-        FROZEN         = 10,
-        MAY_SHUTDOWN   = 11,
-        LISTENER       = 12,
-        CONNECTING     = 13,
-        FUSED          = 14,
+        MAY_SHUTDOWN   = 10,
+        LISTENER       = 11,
+        CONNECTING     = 12,
+        FUSED          = 13,
         // Do not change the order of the flags below this line.
-        EPOLL          = 15,
-        MAX_FLAGS      = 16
+        EPOLL          = 14,
+        MAX_FLAGS      = 15
+    };
+
+    enum class CACHE : uint8_t {
+        GENERIC_INT = 0,
+        // Do not change the order of items below this line.
+        MAX_CACHES  = 1
     };
 
     struct PIPE {
-        union DATA {
-            uint64_t *uint64;
-        };
-
         enum class TYPE : uint8_t {
             NONE = 0,
-            UINT64
+            UINT64,
+            INT
         };
 
-        struct SAMPLE {
-            DATA data;
+        struct ENTRY {
+            union {
+                uint64_t as_uint64;
+                int      as_int;
+            };
             TYPE type;
         };
 
         size_t capacity;
         size_t size;
-        DATA data;
+        void *data;
         TYPE type;
     };
 
     struct INDEX {
         enum class TYPE : uint8_t {
-            NONE       = 0,
+            NONE            = 0,
             // Do not change the order of the types above this line.
-            GROUP_SIZE = 1,
+            GROUP_SIZE      = 1,
+            FLAG_DESCRIPTOR = 2,
             // Do not change the order of the types below this line.
-            count      = 2
+            MAX_TYPES       = 3
         };
 
         struct ENTRY {
-            PIPE::SAMPLE key;
-            PIPE::SAMPLE value;
+            const PIPE *key_pipe;
+            const PIPE *val_pipe;
+            size_t index;
+            ERROR error;
             bool valid:1;
         };
 
@@ -180,23 +188,21 @@ class SOCKETS final {
     };
 
     struct jack_type {
-        uint32_t flags[static_cast<size_t>(FLAG::MAX_FLAGS)];
+        uint32_t flags[static_cast<size_t>(FLAG::MAX_FLAGS)]; // TODO: fix type
         epoll_event *events;
         std::vector<uint8_t> *incoming;
         std::vector<uint8_t> *outgoing;
         char host[NI_MAXHOST];
         char port[NI_MAXSERV];
-        int descriptor;
+        int descriptor; // TODO: typedef descriptor_type and use it instead
         int parent;
         int group;
         int ai_family;
         int ai_flags;
         struct addrinfo *blacklist;
-    };
-
-    struct flag_type {
-        int descriptor;
-        FLAG index;
+        struct bitset_type {
+            bool frozen:1;
+        } bitset;
     };
 
     inline static constexpr struct jack_type make_jack(
@@ -207,8 +213,20 @@ class SOCKETS final {
         int descriptor, EVENT::TYPE type, bool valid =true
     ) noexcept;
 
-    inline static constexpr struct flag_type make_flag(
-        int descriptor =NO_DESCRIPTOR, FLAG index =FLAG::NONE
+    inline static constexpr struct INDEX::ENTRY make_index_entry(
+        const PIPE &keys, const PIPE &values, size_t index, ERROR, bool valid
+    ) noexcept;
+
+    inline static constexpr struct INDEX::ENTRY make_index_entry(
+        const PIPE &keys, const PIPE &values, size_t index, ERROR
+    ) noexcept;
+
+    inline static constexpr struct PIPE::ENTRY make_pipe_entry(
+        uint64_t value
+    ) noexcept;
+
+    inline static constexpr struct PIPE::ENTRY make_pipe_entry(
+        int value
     ) noexcept;
 
     inline static bool is_listed(
@@ -258,32 +276,49 @@ class SOCKETS final {
 
     const jack_type *find_jack(int descriptor) const noexcept;
     jack_type *find_jack(int descriptor) noexcept;
+    const jack_type *find_jack(const FLAG) const noexcept;
+    jack_type *find_jack(const FLAG) noexcept;
     const jack_type *find_epoll_jack() const noexcept;
     jack_type *find_epoll_jack() noexcept;
     const jack_type &get_jack(int descriptor) const noexcept;
     jack_type &get_jack(int descriptor) noexcept;
     const jack_type &get_epoll_jack() const noexcept;
     jack_type &get_epoll_jack() noexcept;
+    const PIPE *find_descriptors(const FLAG) const noexcept;
 
     [[nodiscard]] ERROR set_group(int descriptor, int group) noexcept;
     void rem_group(int descriptor) noexcept;
-    bool set_flag(int descriptor, FLAG flag, bool value =true) noexcept;
-    bool rem_flag(int descriptor, FLAG flag) noexcept;
+    /*TODO: [[nodiscard]]*/ ERROR set_flag(
+        int descriptor, FLAG, bool val =true
+    ) noexcept;
+    void rem_flag(int descriptor, FLAG flag) noexcept;
     bool has_flag(const jack_type &rec, const FLAG flag) const noexcept;
     bool has_flag(int descriptor, const FLAG flag) const noexcept;
 
-    size_t count(INDEX::TYPE index_type, uint64_t key) const noexcept;
-    INDEX::ENTRY find(INDEX::TYPE index_type, uint64_t key) const noexcept;
-    size_t erase(INDEX::TYPE index_type, uint64_t key) noexcept;
-    [[nodiscard]] ERROR insert(
+    size_t count(INDEX::TYPE, uint64_t key) const noexcept;
+    INDEX::ENTRY find(
+        INDEX::TYPE, uint64_t key, const PIPE::ENTRY value ={},
+        size_t start_i =std::numeric_limits<size_t>::max(),
+        size_t iterations =std::numeric_limits<size_t>::max()
+    ) const noexcept;
+    size_t erase(
+        INDEX::TYPE, uint64_t key, const PIPE::ENTRY value ={},
+        size_t start_i =std::numeric_limits<size_t>::max(),
+        size_t iterations =std::numeric_limits<size_t>::max()
+    ) noexcept;
+    [[nodiscard]] INDEX::ENTRY insert(
         INDEX::TYPE, uint64_t key, const void *value
     ) noexcept;
     void erase(PIPE &pipe, size_t index) noexcept;
     void destroy(PIPE &pipe) noexcept;
+    [[nodiscard]] ERROR reserve(PIPE &pipe, size_t capacity) noexcept;
     [[nodiscard]] ERROR insert(PIPE &pipe, const void *value) noexcept;
     [[nodiscard]] ERROR insert(
         PIPE &pipe, size_t position, const void *value
+        // TODO: replace the use of void pointer with PIPE::ENTRY
     ) noexcept;
+    [[nodiscard]] ERROR copy(const PIPE &src, PIPE &dst) noexcept;
+    PIPE &get_cache(CACHE) noexcept;
 
     void log(
         const char *fmt, ...
@@ -299,22 +334,31 @@ class SOCKETS final {
     ) const noexcept;
 
     void clear() noexcept;
+    void dump(
+        const char *file =__builtin_FILE(), int line =__builtin_LINE()
+    ) const noexcept;
 
     void (*log_callback)(const char *text) noexcept;
-    INDEX indices[static_cast<size_t>(INDEX::TYPE::count)];
+    INDEX indices[static_cast<size_t>(INDEX::TYPE::MAX_TYPES)];
+    PIPE  caches [static_cast<size_t>(CACHE::MAX_CACHES)];
     std::vector<jack_type> descriptors[1024];
-    std::vector<flag_type> flags[static_cast<size_t>(FLAG::MAX_FLAGS)];
     std::vector<uint8_t> cache;
     sigset_t sigset_all;
     sigset_t sigset_none;
     sigset_t sigset_orig;
 };
 
-SOCKETS::SOCKETS() noexcept : log_callback(nullptr), indices{} {
+SOCKETS::SOCKETS() noexcept : log_callback(nullptr), indices{}, caches{} {
 }
 
 SOCKETS::~SOCKETS() {
-    if (find_epoll_jack()) {
+    for (size_t i=0; i<std::size(indices); ++i) {
+        INDEX &index = indices[i];
+
+        if (index.type == INDEX::TYPE::NONE) {
+            continue;
+        }
+
         log(
             "%s\n", "destroying instance without having it deinitialized first"
         );
@@ -322,6 +366,10 @@ SOCKETS::~SOCKETS() {
 }
 
 void SOCKETS::clear() noexcept {
+    for (size_t i=0; i<std::size(caches); ++i) {
+        destroy(caches[i]);
+    }
+
     for (size_t i=0; i<std::size(indices); ++i) {
         INDEX &index = indices[i];
 
@@ -343,10 +391,14 @@ void SOCKETS::clear() noexcept {
 bool SOCKETS::init() noexcept {
     static constexpr const size_t max_key_hash = 1024;
 
-    if (find_epoll_jack()) {
-        log("%s: already initialized", __FUNCTION__);
+    for (size_t i=0; i<std::size(indices); ++i) {
+        INDEX &index = indices[i];
 
-        return false;
+        if (index.type != INDEX::TYPE::NONE) {
+            log("%s: already initialized", __FUNCTION__);
+
+            return false;
+        }
     }
 
     int retval = sigfillset(&sigset_all);
@@ -390,10 +442,23 @@ bool SOCKETS::init() noexcept {
     for (size_t i=0; i<std::size(indices); ++i) {
         INDEX &index = indices[i];
         index.type = static_cast<INDEX::TYPE>(i);
-        index.buckets = max_key_hash;
+
+        switch (index.type) {
+            default: {
+                index.buckets = max_key_hash;
+                index.multimap = false;
+                break;
+            }
+            case INDEX::TYPE::FLAG_DESCRIPTOR: {
+                index.buckets = static_cast<size_t>(FLAG::MAX_FLAGS);
+                index.multimap = true;
+                break;
+            }
+        }
 
         switch (index.type) {
             case INDEX::TYPE::NONE: continue;
+            case INDEX::TYPE::FLAG_DESCRIPTOR:
             case INDEX::TYPE::GROUP_SIZE: {
                 index.table = new (std::nothrow) INDEX::TABLE [index.buckets]();
                 break;
@@ -408,25 +473,39 @@ bool SOCKETS::init() noexcept {
 
         for (size_t j=0; j<index.buckets; ++j) {
             INDEX::TABLE &table = index.table[j];
+            PIPE &key_pipe = table.key;
+            PIPE &val_pipe = table.value;
+
+            key_pipe.type = PIPE::TYPE::UINT64;
 
             switch (index.type) {
                 case INDEX::TYPE::GROUP_SIZE: {
-                    table.key.type   = PIPE::TYPE::UINT64;
-                    table.value.type = PIPE::TYPE::UINT64;
-
-                    table.key.data.uint64   = new (std::nothrow) uint64_t [1];
-                    table.value.data.uint64 = new (std::nothrow) uint64_t [1];
-
-                    if (table.key.data.uint64   == nullptr
-                    ||  table.value.data.uint64 == nullptr) {
-                        clear();
-                        return false;
-                    }
-
+                    val_pipe.type = PIPE::TYPE::UINT64;
+                    break;
+                }
+                case INDEX::TYPE::FLAG_DESCRIPTOR: {
+                    val_pipe.type = PIPE::TYPE::INT;
                     break;
                 }
                 default: die();
             }
+
+            if (val_pipe.type == PIPE::TYPE::NONE) {
+                clear();
+                return false;
+            }
+        }
+    }
+
+    for (size_t i=0; i<std::size(caches); ++i) {
+        PIPE &pipe = caches[i];
+
+        switch (static_cast<CACHE>(i)) {
+            case CACHE::GENERIC_INT: {
+                pipe.type = PIPE::TYPE::INT;
+                break;
+            }
+            case CACHE::MAX_CACHES: die();
         }
     }
 
@@ -502,13 +581,12 @@ struct SOCKETS::EVENT SOCKETS::next_event() noexcept {
 }
 
 int SOCKETS::next_connection() noexcept {
-    static constexpr const size_t flg_connect_index{
-        static_cast<size_t>(FLAG::NEW_CONNECTION)
-    };
+    jack_type *jack = find_jack(FLAG::NEW_CONNECTION);
 
-    if (!flags[flg_connect_index].empty()) {
-        int descriptor = flags[flg_connect_index].back().descriptor;
+    if (jack) {
+        int descriptor = jack->descriptor;
         rem_flag(descriptor, FLAG::NEW_CONNECTION);
+
         return descriptor;
     }
 
@@ -516,15 +594,7 @@ int SOCKETS::next_connection() noexcept {
 }
 
 int SOCKETS::next_disconnection() noexcept {
-    static constexpr const size_t flg_connect_index{
-        static_cast<size_t>(FLAG::NEW_CONNECTION)
-    };
-
-    static constexpr const size_t flg_disconnect_index{
-        static_cast<size_t>(FLAG::DISCONNECT)
-    };
-
-    if (!flags[flg_connect_index].empty()) {
+    if (find_jack(FLAG::NEW_CONNECTION)) {
         // We postpone reporting any disconnections until the application
         // has acknowledged all the new incoming connections. This prevents
         // us from reporting a disconnection event before its respective
@@ -533,24 +603,28 @@ int SOCKETS::next_disconnection() noexcept {
         return NO_DESCRIPTOR;
     }
 
-    if (!flags[flg_disconnect_index].empty()) {
-        int descriptor = flags[flg_disconnect_index].back().descriptor;
-        rem_flag(descriptor, FLAG::DISCONNECT);
-        set_flag(descriptor, FLAG::CLOSE);
-        return descriptor;
+    jack_type *jack = find_jack(FLAG::DISCONNECT);
+
+    if (jack) {
+        int descriptor = jack->descriptor;
+
+        if (set_flag(descriptor, FLAG::CLOSE) == ERROR::NONE) {
+            rem_flag(descriptor, FLAG::DISCONNECT);
+
+            return descriptor;
+        }
     }
 
     return NO_DESCRIPTOR;
 }
 
 int SOCKETS::next_incoming() noexcept {
-    static constexpr const size_t flg_incoming_index{
-        static_cast<size_t>(FLAG::INCOMING)
-    };
+    jack_type *jack = find_jack(FLAG::INCOMING);
 
-    if (!flags[flg_incoming_index].empty()) {
-        int descriptor = flags[flg_incoming_index].back().descriptor;
+    if (jack) {
+        int descriptor = jack->descriptor;
         rem_flag(descriptor, FLAG::INCOMING);
+
         return descriptor;
     }
 
@@ -570,7 +644,7 @@ size_t SOCKETS::get_group_size(int group) const noexcept {
     INDEX::ENTRY found{find(INDEX::TYPE::GROUP_SIZE, group)};
 
     if (found.valid) {
-        return *(found.value.data.uint64);
+        return ((uint64_t *) found.val_pipe->data)[found.index];
     }
 
     return 0;
@@ -592,18 +666,28 @@ const char *SOCKETS::get_port(int descriptor) const noexcept {
 }
 
 void SOCKETS::freeze(int descriptor) noexcept {
-    set_flag(descriptor, FLAG::FROZEN);
+    jack_type *jack = find_jack(descriptor);
+
+    if (jack) {
+        jack->bitset.frozen = true;
+    }
 }
 
 void SOCKETS::unfreeze(int descriptor) noexcept {
     if (!has_flag(descriptor, FLAG::DISCONNECT)
     &&  !has_flag(descriptor, FLAG::CLOSE)) {
-        rem_flag(descriptor, FLAG::FROZEN);
+        jack_type *jack = find_jack(descriptor);
+
+        if (jack) {
+            jack->bitset.frozen = false;
+        }
     }
 }
 
 bool SOCKETS::is_frozen(int descriptor) const noexcept {
-    return has_flag(descriptor, FLAG::FROZEN);
+    const jack_type *jack = find_jack(descriptor);
+
+    return jack ? jack->bitset.frozen : false;
 }
 
 bool SOCKETS::idle() const noexcept {
@@ -677,30 +761,21 @@ bool SOCKETS::append_outgoing(
 }
 
 bool SOCKETS::serve(int timeout) noexcept {
-    static constexpr const size_t flg_connect_index{
-        static_cast<size_t>(FLAG::NEW_CONNECTION)
-    };
-
-    static constexpr const size_t flg_disconnect_index{
-        static_cast<size_t>(FLAG::DISCONNECT)
-    };
-
-    if (!flags[flg_connect_index].empty()) {
+    if (find_jack(FLAG::NEW_CONNECTION)) {
         // We postpone serving any descriptors until the application has
         // acknowledged all the new incoming connections.
 
         return true;
     }
 
-    std::vector<int> recbuf;
+    PIPE &cached_descriptors = get_cache(CACHE::GENERIC_INT);
 
-    for (size_t i=0; i<std::size(flags); ++i) {
+    for (size_t i=0; i<size_t(FLAG::MAX_FLAGS); ++i) {
         FLAG flag = static_cast<FLAG>(i);
 
         switch (flag) {
             case FLAG::RECONNECT:
             case FLAG::LISTENER:
-            case FLAG::FROZEN:
             case FLAG::INCOMING:
             case FLAG::NEW_CONNECTION:
             case FLAG::DISCONNECT:
@@ -714,15 +789,23 @@ bool SOCKETS::serve(int timeout) noexcept {
             default: break;
         }
 
-        recbuf.reserve(flags[i].size());
+        const PIPE *flagged_descriptors = find_descriptors(flag);
 
-        for (size_t j=0, sz=flags[i].size(); j<sz; ++j) {
-            int d = flags[i][j].descriptor;
-            recbuf.emplace_back(d);
+        if (!flagged_descriptors) continue;
+
+        ERROR error = copy(
+            // TODO: if it is possible for descriptors to be closed and reused
+            // during a single iteration cycle, then bad things would happen.
+            // check if this is a case here and implement a fix if necessary.
+            *flagged_descriptors, cached_descriptors
+        );
+
+        if (error != ERROR::NONE) {
+            return false; // TODO: implement better out-of-memory error handling
         }
 
-        for (size_t j=0, sz=recbuf.size(); j<sz; ++j) {
-            int d = recbuf[j];
+        for (size_t j=0, sz=cached_descriptors.size; j<sz; ++j) {
+            int d = ((int *) cached_descriptors.data)[j];
             const jack_type *jack = find_jack(d);
 
             if (jack == nullptr) continue;
@@ -735,8 +818,7 @@ bool SOCKETS::serve(int timeout) noexcept {
                     break;
                 }
                 case FLAG::CLOSE: {
-                    if (has_flag(d, FLAG::READ)
-                    && !has_flag(d, FLAG::FROZEN)) {
+                    if (has_flag(d, FLAG::READ) && !jack->bitset.frozen) {
                         // Unless this descriptor is frozen, we postpone
                         // normal closing until there is nothing left to
                         // read from this descriptor.
@@ -752,8 +834,7 @@ bool SOCKETS::serve(int timeout) noexcept {
                     break;
                 }
                 case FLAG::ACCEPT: {
-                    if (!flags[flg_disconnect_index].empty()
-                    || has_flag(d, FLAG::FROZEN)) {
+                    if (find_jack(FLAG::DISCONNECT) || jack->bitset.frozen) {
                         // We postpone the acceptance of new connections
                         // until all the recent disconnections have been
                         // acknowledged and the descriptor is not frozen.
@@ -766,7 +847,7 @@ bool SOCKETS::serve(int timeout) noexcept {
                     break;
                 }
                 case FLAG::WRITE: {
-                    if (has_flag(d, FLAG::FROZEN)) {
+                    if (jack->bitset.frozen) {
                         set_flag(d, flag);
                         continue;
                     }
@@ -775,7 +856,7 @@ bool SOCKETS::serve(int timeout) noexcept {
                     break;
                 }
                 case FLAG::READ: {
-                    if (has_flag(d, FLAG::FROZEN)) {
+                    if (jack->bitset.frozen) {
                         set_flag(d, flag);
                         continue;
                     }
@@ -799,8 +880,6 @@ bool SOCKETS::serve(int timeout) noexcept {
 
             return false;
         }
-
-        recbuf.clear();
     }
 
     return true;
@@ -1039,26 +1118,28 @@ bool SOCKETS::handle_close(int descriptor) noexcept {
 }
 
 bool SOCKETS::handle_epoll(int epoll_descriptor, int timeout) noexcept {
-    static constexpr const size_t blockers[]{
-        static_cast<size_t>(FLAG::NEW_CONNECTION),
-        static_cast<size_t>(FLAG::DISCONNECT),
-        static_cast<size_t>(FLAG::INCOMING)
+    static constexpr const FLAG blockers[]{
+        FLAG::NEW_CONNECTION,
+        FLAG::DISCONNECT,
+        FLAG::INCOMING
     };
 
     set_flag(epoll_descriptor, FLAG::EPOLL);
 
-    for (size_t flag_index : blockers) {
-        if (!flags[flag_index].empty()) {
-            if (!has_flag(epoll_descriptor, FLAG::FUSED)) {
-                set_flag(epoll_descriptor, FLAG::FUSED);
-
-                return true;
-            }
-
-            log("Cannot serve sockets if there are unhandled events.\n");
-
-            return false;
+    for (FLAG flag_index : blockers) {
+        if (!find_jack(flag_index)) {
+            continue;
         }
+
+        if (!has_flag(epoll_descriptor, FLAG::FUSED)) {
+            set_flag(epoll_descriptor, FLAG::FUSED);
+
+            return true;
+        }
+
+        log("Cannot serve sockets if there are unhandled events.\n");
+
+        return false;
     }
 
     rem_flag(epoll_descriptor, FLAG::FUSED);
@@ -2188,7 +2269,7 @@ SOCKETS::jack_type SOCKETS::pop(int descriptor) noexcept {
         int parent_descriptor = rec.parent;
 
         // First, let's free the flags.
-        for (size_t j=0, fsz=std::size(flags); j<fsz; ++j) {
+        for (size_t j=0, fsz=std::size(rec.flags); j<fsz; ++j) {
             rem_flag(rec.descriptor, static_cast<FLAG>(j));
         }
 
@@ -2236,24 +2317,27 @@ SOCKETS::jack_type *SOCKETS::find_jack(int descriptor) noexcept {
     );
 }
 
-const SOCKETS::jack_type *SOCKETS::find_epoll_jack() const noexcept {
-    const jack_type *epoll_jack = nullptr;
-
-    static constexpr const size_t flag_index{
-        static_cast<size_t>(FLAG::EPOLL)
+const SOCKETS::jack_type *SOCKETS::find_jack(const FLAG flag) const noexcept {
+    INDEX::ENTRY entry{
+        find(INDEX::TYPE::FLAG_DESCRIPTOR, static_cast<uint64_t>(flag))
     };
 
-    for (size_t i=0, sz=flags[flag_index].size(); i<sz; ++i) {
-        int epoll_descriptor = flags[flag_index][i].descriptor;
-        const jack_type *rec = find_jack(epoll_descriptor);
-
-        if (rec) {
-            epoll_jack = rec;
-            break;
-        }
+    if (entry.valid) {
+        const int descriptor = ((int *) entry.val_pipe->data)[entry.index];
+        return &get_jack(descriptor); // If it's indexed, then it must exist.
     }
 
-    return epoll_jack;
+    return nullptr;
+}
+
+SOCKETS::jack_type *SOCKETS::find_jack(const FLAG flag) noexcept {
+    return const_cast<jack_type *>(
+        static_cast<const SOCKETS &>(*this).find_jack(flag)
+    );
+}
+
+const SOCKETS::jack_type *SOCKETS::find_epoll_jack() const noexcept {
+    return find_jack(FLAG::EPOLL);
 }
 
 SOCKETS::jack_type *SOCKETS::find_epoll_jack() noexcept {
@@ -2294,6 +2378,26 @@ SOCKETS::jack_type &SOCKETS::get_epoll_jack() noexcept {
     return *rec;
 }
 
+const SOCKETS::PIPE *SOCKETS::find_descriptors(const FLAG flag) const noexcept {
+    INDEX::ENTRY entry{
+        find(INDEX::TYPE::FLAG_DESCRIPTOR, static_cast<uint64_t>(flag))
+    };
+
+    if (entry.valid) {
+        return entry.val_pipe;
+    }
+
+    return nullptr;
+}
+
+SOCKETS::PIPE &SOCKETS::get_cache(CACHE cache) noexcept {
+    size_t index = size_t(cache);
+
+    if (index >= std::size(caches)) die();
+
+    return caches[index];
+}
+
 bool SOCKETS::modify_epoll(int descriptor, uint32_t events) noexcept {
     jack_type &epoll_jack = get_epoll_jack();
     int epoll_descriptor = epoll_jack.descriptor;
@@ -2328,27 +2432,22 @@ bool SOCKETS::modify_epoll(int descriptor, uint32_t events) noexcept {
 }
 
 SOCKETS::ERROR SOCKETS::set_group(int descriptor, int group) noexcept {
-    jack_type *rec = find_jack(descriptor);
+    jack_type &rec = get_jack(descriptor);
 
-    if (!rec) die();
-
-    INDEX::ENTRY found{find(INDEX::TYPE::GROUP_SIZE, rec->group)};
+    INDEX::ENTRY found{find(INDEX::TYPE::GROUP_SIZE, rec.group)};
 
     if (found.valid) {
-        if (found.value.type == PIPE::TYPE::UINT64) {
-            uint64_t *value = found.value.data.uint64;
+        if (found.val_pipe->type == PIPE::TYPE::UINT64) {
+            uint64_t &value = ((uint64_t *) found.val_pipe->data)[found.index];
 
-            if (*value) {
-                if (!--*value) {
-                    erase(INDEX::TYPE::GROUP_SIZE, rec->group);
-                }
+            if (--value == 0) {
+                erase(INDEX::TYPE::GROUP_SIZE, rec.group);
             }
-            else bug();
         }
         else die();
     }
 
-    rec->group = group;
+    rec.group = group;
 
     if (group == 0) {
         // 0 stands for no group. We don't keep track of its size.
@@ -2358,14 +2457,14 @@ SOCKETS::ERROR SOCKETS::set_group(int descriptor, int group) noexcept {
     found = find(INDEX::TYPE::GROUP_SIZE, group);
 
     if (found.valid) {
-        if (found.value.type == PIPE::TYPE::UINT64) {
-            ++(*found.value.data.uint64);
+        if (found.val_pipe->type == PIPE::TYPE::UINT64) {
+            ++((uint64_t *) found.val_pipe->data)[found.index];
         }
         else die();
     }
     else {
         int value = 1;
-        return insert(INDEX::TYPE::GROUP_SIZE, group, &value);
+        return insert(INDEX::TYPE::GROUP_SIZE, group, &value).error;
     }
 
     return ERROR::NONE;
@@ -2377,64 +2476,87 @@ void SOCKETS::rem_group(int descriptor) noexcept {
     }
 }
 
-bool SOCKETS::set_flag(int descriptor, FLAG flag, bool value) noexcept {
+SOCKETS::ERROR SOCKETS::set_flag(
+    int descriptor, FLAG flag, bool value
+) noexcept {
     if (value == false) {
-        return rem_flag(descriptor, flag);
+        rem_flag(descriptor, flag);
+        return ERROR::NONE;
     }
+
+    jack_type &rec = get_jack(descriptor);
 
     size_t index = static_cast<size_t>(flag);
 
-    if (index > std::size(flags)) {
-        return false;
+    if (index >= std::size(rec.flags)) {
+        return die();
     }
+
+    uint32_t pos = rec.flags[index];
+
+    if (pos != std::numeric_limits<uint32_t>::max()) {
+        return ERROR::NONE; // Already set.
+    }
+
+    INDEX::ENTRY entry{
+        insert(
+            INDEX::TYPE::FLAG_DESCRIPTOR, static_cast<uint64_t>(flag),
+            &descriptor
+        )
+    };
+
+    if (entry.valid) {
+        if (entry.index >= std::numeric_limits<uint32_t>::max()) {
+            die(); // the number of descriptors is limited by the max of int.
+        }
+
+        rec.flags[index] = uint32_t(entry.index);
+        return ERROR::NONE;
+    }
+
+    return entry.error;
+}
+
+void SOCKETS::rem_flag(int descriptor, FLAG flag) noexcept {
+    size_t index = static_cast<size_t>(flag);
 
     jack_type *rec = find_jack(descriptor);
 
-    if (!rec) return false;
+    if (!rec) return;
+
+    if (index >= std::size(rec->flags)) {
+        die();
+    }
 
     uint32_t pos = rec->flags[index];
 
     if (pos == std::numeric_limits<uint32_t>::max()) {
-        if (flags[index].size() < std::numeric_limits<uint32_t>::max()) {
-            rec->flags[index] = uint32_t(flags[index].size());
-            flags[index].emplace_back(make_flag(descriptor, flag));
-        }
-        else {
-            log(
-                "flag buffer is full (%s:%d)", __FILE__, __LINE__
-            );
-
-            return false;
-        }
+        return;
     }
 
-    return true;
-}
+    size_t erased = erase(
+        INDEX::TYPE::FLAG_DESCRIPTOR,
+        static_cast<uint64_t>(flag), make_pipe_entry(descriptor), pos, 1
+    );
 
-bool SOCKETS::rem_flag(int descriptor, FLAG flag) noexcept {
-    size_t index = static_cast<size_t>(flag);
-
-    if (index > std::size(flags)) {
-        return false;
+    if (!erased) {
+        die();
+        return;
     }
 
-    jack_type *rec = find_jack(descriptor);
+    INDEX::ENTRY entry{
+        find(
+            INDEX::TYPE::FLAG_DESCRIPTOR,
+            static_cast<uint64_t>(flag), {}, pos, 1
+        )
+    };
 
-    if (!rec) return false;
-
-    uint32_t pos = rec->flags[index];
-
-    if (pos != std::numeric_limits<uint32_t>::max()) {
-        flags[index][pos] = flags[index].back();
-
-        int other_descriptor = flags[index].back().descriptor;
+    if (entry.valid && entry.index == pos) {
+        int other_descriptor = ((int *) entry.val_pipe->data)[entry.index];
         get_jack(other_descriptor).flags[index] = pos;
-
-        flags[index].pop_back();
-        rec->flags[index] = std::numeric_limits<uint32_t>::max();
     }
 
-    return true;
+    rec->flags[index] = std::numeric_limits<uint32_t>::max();
 }
 
 bool SOCKETS::has_flag(const jack_type &rec, const FLAG flag) const noexcept {
@@ -2459,7 +2581,8 @@ bool SOCKETS::has_flag(int descriptor, const FLAG flag) const noexcept {
 }
 
 SOCKETS::INDEX::ENTRY SOCKETS::find(
-    INDEX::TYPE index_type, uint64_t key
+    INDEX::TYPE index_type, uint64_t key, const PIPE::ENTRY value,
+    size_t start_i, size_t iterations
 ) const noexcept {
     const INDEX &index = indices[size_t(index_type)];
 
@@ -2468,47 +2591,68 @@ SOCKETS::INDEX::ENTRY SOCKETS::find(
     const INDEX::TABLE &table = index.table[key % index.buckets];
     const PIPE &key_pipe = table.key;
 
-    if (key_pipe.type != PIPE::TYPE::UINT64) die();
+    if (key_pipe.type != PIPE::TYPE::UINT64) {
+        die(); // The only valid key type is uint64_t.
+    }
 
-    const uint64_t *data = key_pipe.data.uint64;
+    const uint64_t *data = (const uint64_t *) key_pipe.data;
 
     if (!data) {
         return {};
     }
 
-    for (size_t i=0, sz=key_pipe.size; i<sz; ++i) {
-        if (data[i] == key) {
-            const PIPE &value_pipe = table.value;
-            INDEX::ENTRY entry{};
+    const PIPE &value_pipe = table.value;
 
-            entry.valid = true;
-            entry.key.type = key_pipe.type;
-            entry.value.type = value_pipe.type;
+    if (value.type != PIPE::TYPE::NONE && value.type != value_pipe.type) {
+        die();
+    }
 
-            switch (key_pipe.type) {
-                case PIPE::TYPE::UINT64: {
-                    entry.key.data.uint64 = key_pipe.data.uint64 + i;
-                    break;
-                }
-                case PIPE::TYPE::NONE: die(); continue;
-            }
+    size_t sz = key_pipe.size;
+    size_t i = std::min(sz-1, start_i);
 
+    for (; i<sz && iterations; --i, --iterations) {
+        if (data[i] != key) {
+            continue;
+        }
+
+        if (value.type != PIPE::TYPE::NONE) {
             switch (value_pipe.type) {
                 case PIPE::TYPE::UINT64: {
-                    entry.value.data.uint64 = value_pipe.data.uint64 + i;
+                    const uint64_t *vd = (const uint64_t *) value_pipe.data;
+
+                    if (vd[i] != value.as_uint64) {
+                        continue;
+                    }
+
+                    break;
+                }
+                case PIPE::TYPE::INT: {
+                    const int *vd = (const int *) value_pipe.data;
+
+                    if (vd[i] != value.as_int) {
+                        continue;
+                    }
+
                     break;
                 }
                 case PIPE::TYPE::NONE: die(); continue;
             }
-
-            return entry;
         }
+
+        INDEX::ENTRY entry{};
+
+        entry.index = i;
+        entry.valid = true;
+        entry.key_pipe = &key_pipe;
+        entry.val_pipe = &value_pipe;
+
+        return entry;
     }
 
     return {};
 }
 
-SOCKETS::ERROR SOCKETS::insert(
+SOCKETS::INDEX::ENTRY SOCKETS::insert(
     INDEX::TYPE index_type, uint64_t key, const void *value
 ) noexcept {
     const INDEX &index = indices[size_t(index_type)];
@@ -2523,16 +2667,20 @@ SOCKETS::ERROR SOCKETS::insert(
     PIPE &val_pipe = table.value;
 
     if (!index.multimap) {
-        uint64_t *key_data = key_pipe.data.uint64;
+        uint64_t *key_data = (uint64_t *) key_pipe.data;
 
         if (!key_data) {
             die();
         }
 
-        for (size_t i=0; i<key_pipe.size;) {
-            if (key_data[i] == key) {
-                return insert(val_pipe, i, value);
+        for (size_t i=0; i<key_pipe.size; ++i) {
+            if (key_data[i] != key) {
+                continue;
             }
+
+            return make_index_entry(
+                key_pipe, val_pipe, i, insert(val_pipe, i, value)
+            );
         }
     }
 
@@ -2551,10 +2699,13 @@ SOCKETS::ERROR SOCKETS::insert(
         }
     }
 
-    return error;
+    return make_index_entry(key_pipe, val_pipe, old_size, error);
 }
 
-size_t SOCKETS::erase(INDEX::TYPE index_type, uint64_t key) noexcept {
+size_t SOCKETS::erase(
+    INDEX::TYPE index_type, uint64_t key, const PIPE::ENTRY value,
+    size_t start_i, size_t iterations
+) noexcept {
     const INDEX &index = indices[size_t(index_type)];
 
     if (index.buckets <= 0) die();
@@ -2564,7 +2715,7 @@ size_t SOCKETS::erase(INDEX::TYPE index_type, uint64_t key) noexcept {
 
     if (key_pipe.type != PIPE::TYPE::UINT64) die();
 
-    uint64_t *key_data = key_pipe.data.uint64;
+    uint64_t *key_data = (uint64_t *) key_pipe.data;
 
     size_t erased = 0;
 
@@ -2574,10 +2725,48 @@ size_t SOCKETS::erase(INDEX::TYPE index_type, uint64_t key) noexcept {
 
     PIPE &val_pipe = table.value;
 
-    for (size_t i=0; i<key_pipe.size;) {
+    if (value.type != PIPE::TYPE::NONE && value.type != val_pipe.type) {
+        die();
+    }
+
+    size_t i{
+        // We start from the end because erasing the last element is fast.
+
+        std::min(
+            key_pipe.size - 1, start_i
+        )
+    };
+
+    for (; i < key_pipe.size && iterations; --iterations) {
         if (key_data[i] != key) {
-            ++i;
+            --i;
             continue;
+        }
+
+        if (value.type != PIPE::TYPE::NONE) {
+            switch (val_pipe.type) {
+                case PIPE::TYPE::UINT64: {
+                    const uint64_t *vd = (const uint64_t *) val_pipe.data;
+
+                    if (vd[i] != value.as_uint64) {
+                        i = index.multimap ? i-1 : key_pipe.size;
+                        continue;
+                    }
+
+                    break;
+                }
+                case PIPE::TYPE::INT: {
+                    const int *vd = (const int *) val_pipe.data;
+
+                    if (vd[i] != value.as_int) {
+                        i = index.multimap ? i-1 : key_pipe.size;
+                        continue;
+                    }
+
+                    break;
+                }
+                case PIPE::TYPE::NONE: die(); continue;
+            }
         }
 
         erase(key_pipe, i);
@@ -2586,6 +2775,8 @@ size_t SOCKETS::erase(INDEX::TYPE index_type, uint64_t key) noexcept {
         ++erased;
 
         if (index.multimap) {
+            if (i == key_pipe.size) --i;
+
             continue;
         }
 
@@ -2604,7 +2795,7 @@ size_t SOCKETS::count(INDEX::TYPE index_type, uint64_t key) const noexcept {
         const PIPE &pipe = table.key;
 
         if (pipe.type == PIPE::TYPE::UINT64) {
-            const uint64_t *data = pipe.data.uint64;
+            const uint64_t *data = (const uint64_t *) pipe.data;
 
             if (data) {
                 for (size_t i=0, sz=pipe.size; i<sz; ++i) {
@@ -2623,33 +2814,18 @@ size_t SOCKETS::count(INDEX::TYPE index_type, uint64_t key) const noexcept {
 }
 
 SOCKETS::ERROR SOCKETS::insert(
-    PIPE &pipe, size_t position, const void *value
+    PIPE &pipe, size_t index, const void *value
 ) noexcept {
-    if (position > pipe.size) {
+    if (index > pipe.size) {
         die();
     }
-    else if (position == pipe.size && pipe.size == pipe.capacity) {
-        switch (pipe.type) {
-            case PIPE::TYPE::UINT64: {
-                size_t new_size = pipe.size * 2;
-                uint64_t *new_data = new (std::nothrow) uint64_t [new_size];
+    else if (index == pipe.size) {
+        if (pipe.size == pipe.capacity) {
+            ERROR error = reserve(pipe, std::max(pipe.size * 2, size_t{1}));
 
-                if (!new_data) {
-                    return ERROR::OUT_OF_MEMORY;
-                }
-
-                uint64_t *old_data = pipe.data.uint64;
-
-                std::memcpy(new_data, old_data, pipe.size);
-
-                delete [] old_data;
-
-                pipe.data.uint64 = new_data;
-                pipe.capacity = new_size;
-
-                break;
+            if (error != ERROR::NONE) {
+                return error;
             }
-            case PIPE::TYPE::NONE: return die();
         }
 
         ++pipe.size;
@@ -2657,8 +2833,13 @@ SOCKETS::ERROR SOCKETS::insert(
 
     switch (pipe.type) {
         case PIPE::TYPE::UINT64: {
-            uint64_t *data = pipe.data.uint64;
-            data[position] = *((const uint64_t *) value);
+            uint64_t *data = (uint64_t *) pipe.data;
+            data[index] = *((const uint64_t *) value);
+            break;
+        }
+        case PIPE::TYPE::INT: {
+            int *data = (int *) pipe.data;
+            data[index] = *((const int *) value);
             break;
         }
         case PIPE::TYPE::NONE: return die();
@@ -2669,6 +2850,94 @@ SOCKETS::ERROR SOCKETS::insert(
 
 SOCKETS::ERROR SOCKETS::insert(PIPE &pipe, const void *value) noexcept {
     return insert(pipe, pipe.size, value);
+}
+
+SOCKETS::ERROR SOCKETS::reserve(PIPE &pipe, size_t capacity) noexcept {
+    if (pipe.capacity >= capacity) {
+        return ERROR::NONE;
+    }
+
+    switch (pipe.type) {
+        case PIPE::TYPE::UINT64: {
+            uint64_t *new_data = new (std::nothrow) uint64_t [capacity];
+
+            if (!new_data) {
+                return ERROR::OUT_OF_MEMORY;
+            }
+
+            uint64_t *old_data = (uint64_t *) pipe.data;
+
+            if (old_data) {
+                std::memcpy(new_data, old_data, pipe.size * sizeof(uint64_t));
+                delete [] old_data;
+            }
+
+            pipe.data = new_data;
+            pipe.capacity = capacity;
+
+            break;
+        }
+        case PIPE::TYPE::INT: {
+            int *new_data = new (std::nothrow) int [capacity];
+
+            if (!new_data) {
+                return ERROR::OUT_OF_MEMORY;
+            }
+
+            int *old_data = (int *) pipe.data;
+
+            if (old_data) {
+                std::memcpy(new_data, old_data, pipe.size * sizeof(int));
+                delete [] old_data;
+            }
+
+            pipe.data = new_data;
+            pipe.capacity = capacity;
+
+            break;
+        }
+        case PIPE::TYPE::NONE: return die();
+    }
+
+    return ERROR::NONE;
+}
+
+SOCKETS::ERROR SOCKETS::copy(const PIPE &src, PIPE &dst) noexcept {
+    if (&src == &dst) {
+        return ERROR::NONE;
+    }
+
+    if (src.type != dst.type || dst.type == PIPE::TYPE::NONE) {
+        return die();
+    }
+
+    if (src.size > dst.capacity) {
+        ERROR error = reserve(dst, src.size);
+
+        if (error != ERROR::NONE) {
+            return error;
+        }
+    }
+
+    dst.size = src.size;
+
+    if (src.data == nullptr) {
+        return ERROR::NONE;
+    }
+
+    switch (dst.type) {
+        case PIPE::TYPE::UINT64: {
+            std::memcpy(dst.data, src.data, dst.size * sizeof(uint64_t));
+            break;
+        }
+        case PIPE::TYPE::INT: {
+            std::memcpy(dst.data, src.data, dst.size * sizeof(int));
+            break;
+        }
+        case PIPE::TYPE::NONE: return die();
+    }
+
+    return ERROR::NONE;
 }
 
 void SOCKETS::erase(PIPE &pipe, size_t index) noexcept {
@@ -2683,7 +2952,13 @@ void SOCKETS::erase(PIPE &pipe, size_t index) noexcept {
 
     switch (pipe.type) {
         case PIPE::TYPE::UINT64: {
-            pipe.data.uint64[index] = pipe.data.uint64[pipe.size - 1];
+            uint64_t *data = (uint64_t *) pipe.data;
+            data[index] = data[pipe.size-1];
+            break;
+        }
+        case PIPE::TYPE::INT: {
+            int *data = (int *) pipe.data;
+            data[index] = data[pipe.size-1];
             break;
         }
         case PIPE::TYPE::NONE: die(); return;
@@ -2695,18 +2970,35 @@ void SOCKETS::erase(PIPE &pipe, size_t index) noexcept {
 void SOCKETS::destroy(PIPE &pipe) noexcept {
     switch (pipe.type) {
         case PIPE::TYPE::UINT64: {
-            if (pipe.data.uint64) {
-                delete [] pipe.data.uint64;
-                pipe.data.uint64 = nullptr;
-            }
+            if (pipe.data) delete [] ((uint64_t *) pipe.data);
+
+            break;
+        }
+        case PIPE::TYPE::INT: {
+            if (pipe.data) delete [] ((int *) pipe.data);
 
             break;
         }
         case PIPE::TYPE::NONE: die(); break;
     }
 
+    pipe.data = nullptr;
     pipe.capacity = 0;
     pipe.size = 0;
+}
+
+void SOCKETS::dump(const char *file, int line) const noexcept {
+    for (size_t i=0; i<size_t(FLAG::MAX_FLAGS); ++i) {
+        const PIPE *found = find_descriptors(static_cast<FLAG>(i));
+
+        if (found && found->size) {
+            printf("flag[%lu] of %s, line %d:\n", i, file, line);
+            for (size_t j=0; j<found->size; ++j) {
+                printf("%d ", ((int *) found->data)[j]);
+            }
+            printf("\n");
+        }
+    }
 }
 
 constexpr SOCKETS::jack_type SOCKETS::make_jack(
@@ -2727,7 +3019,8 @@ constexpr SOCKETS::jack_type SOCKETS::make_jack(
         .group      = group,
         .ai_family  = 0,
         .ai_flags   = 0,
-        .blacklist  = nullptr
+        .blacklist  = nullptr,
+        .bitset     = {}
     };
 
     for (size_t i = 0; i != std::size(jack.flags); ++i) {
@@ -2751,16 +3044,51 @@ constexpr SOCKETS::EVENT SOCKETS::make_event(
     };
 }
 
-constexpr SOCKETS::flag_type SOCKETS::make_flag(
-    int descriptor, FLAG index
+constexpr struct SOCKETS::INDEX::ENTRY SOCKETS::make_index_entry(
+    const PIPE &keys, const PIPE &values, size_t index, ERROR error, bool valid
 ) noexcept {
     return
 #if __cplusplus <= 201703L
     __extension__
 #endif
-    flag_type{
-        .descriptor = descriptor,
-        .index = index
+    SOCKETS::INDEX::ENTRY{
+        .key_pipe = &keys,
+        .val_pipe = &values,
+        .index    = index,
+        .error    = error,
+        .valid    = valid
+    };
+}
+
+constexpr struct SOCKETS::INDEX::ENTRY SOCKETS::make_index_entry(
+    const PIPE &keys, const PIPE &values, size_t index, ERROR error
+) noexcept {
+    return make_index_entry(keys, values, index, error, error == ERROR::NONE);
+}
+
+constexpr struct SOCKETS::PIPE::ENTRY SOCKETS::make_pipe_entry(
+    uint64_t value
+) noexcept {
+    return
+#if __cplusplus <= 201703L
+    __extension__
+#endif
+    SOCKETS::PIPE::ENTRY{
+        .as_uint64 = value,
+        .type = PIPE::TYPE::UINT64
+    };
+}
+
+constexpr struct SOCKETS::PIPE::ENTRY SOCKETS::make_pipe_entry(
+    int value
+) noexcept {
+    return
+#if __cplusplus <= 201703L
+    __extension__
+#endif
+    SOCKETS::PIPE::ENTRY{
+        .as_int = value,
+        .type = PIPE::TYPE::INT
     };
 }
 
