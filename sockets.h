@@ -25,7 +25,7 @@
 #ifndef SOCKETS_H_05_01_2023
 #define SOCKETS_H_05_01_2023
 
-#include <vector>
+#include <vector> // TODO: get rid of this
 #include <limits>
 
 #include <csignal>
@@ -143,13 +143,15 @@ class SOCKETS final {
         enum class TYPE : uint8_t {
             NONE = 0,
             UINT64,
-            INT
+            INT,
+            JACK_PTR
         };
 
         struct ENTRY {
             union {
                 uint64_t as_uint64;
                 int      as_int;
+                void    *as_ptr;
             };
             TYPE type;
         };
@@ -2631,6 +2633,15 @@ SOCKETS::INDEX::ENTRY SOCKETS::find(
 
                     break;
                 }
+                case PIPE::TYPE::JACK_PTR: {
+                    const void **vd = (const void **) value_pipe.data;
+
+                    if (vd[i] != value.as_ptr) {
+                        continue;
+                    }
+
+                    break;
+                }
                 case PIPE::TYPE::NONE: die(); continue;
             }
         }
@@ -2761,6 +2772,16 @@ size_t SOCKETS::erase(
 
                     break;
                 }
+                case PIPE::TYPE::JACK_PTR: {
+                    const void **vd = (const void **) val_pipe.data;
+
+                    if (vd[i] != value.as_ptr) {
+                        i = index.multimap ? i-1 : key_pipe.size;
+                        continue;
+                    }
+
+                    break;
+                }
                 case PIPE::TYPE::NONE: die(); continue;
             }
         }
@@ -2839,6 +2860,10 @@ SOCKETS::ERROR SOCKETS::insert(
             ((int *) pipe.data)[index] = value.as_int;
             break;
         }
+        case PIPE::TYPE::JACK_PTR: {
+            ((void **) pipe.data)[index] = value.as_ptr;
+            break;
+        }
         case PIPE::TYPE::NONE: return die();
     }
 
@@ -2893,6 +2918,25 @@ SOCKETS::ERROR SOCKETS::reserve(PIPE &pipe, size_t capacity) noexcept {
 
             break;
         }
+        case PIPE::TYPE::JACK_PTR: {
+            void **new_data = new (std::nothrow) void* [capacity];
+
+            if (!new_data) {
+                return ERROR::OUT_OF_MEMORY;
+            }
+
+            void **old_data = (void **) pipe.data;
+
+            if (old_data) {
+                std::memcpy(new_data, old_data, pipe.size * sizeof(void*));
+                delete [] old_data;
+            }
+
+            pipe.data = new_data;
+            pipe.capacity = capacity;
+
+            break;
+        }
         case PIPE::TYPE::NONE: return die();
     }
 
@@ -2931,6 +2975,10 @@ SOCKETS::ERROR SOCKETS::copy(const PIPE &src, PIPE &dst) noexcept {
             std::memcpy(dst.data, src.data, dst.size * sizeof(int));
             break;
         }
+        case PIPE::TYPE::JACK_PTR: {
+            std::memcpy(dst.data, src.data, dst.size * sizeof(void*));
+            break;
+        }
         case PIPE::TYPE::NONE: return die();
     }
 
@@ -2958,6 +3006,11 @@ void SOCKETS::erase(PIPE &pipe, size_t index) noexcept {
             data[index] = data[pipe.size-1];
             break;
         }
+        case PIPE::TYPE::JACK_PTR: {
+            void **data = (void **) pipe.data;
+            data[index] = data[pipe.size-1];
+            break;
+        }
         case PIPE::TYPE::NONE: die(); return;
     }
 
@@ -2973,6 +3026,11 @@ void SOCKETS::destroy(PIPE &pipe) noexcept {
         }
         case PIPE::TYPE::INT: {
             if (pipe.data) delete [] ((int *) pipe.data);
+
+            break;
+        }
+        case PIPE::TYPE::JACK_PTR: {
+            if (pipe.data) delete [] ((void **) pipe.data);
 
             break;
         }
