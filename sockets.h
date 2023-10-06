@@ -42,6 +42,23 @@ class SOCKETS final {
     static constexpr const char *VERSION = "1.0";
     static constexpr const int NO_DESCRIPTOR = -1; // TODO: get rid of this
 
+    enum class ERROR : uint8_t {
+        NONE = 0,
+        OUT_OF_MEMORY,
+        UNDEFINED_BEHAVIOR,
+        FORBIDDEN_CONDITION,
+        UNHANDLED_EVENTS
+    };
+
+    static constexpr const ERROR
+        ERR_NONE                = ERROR::NONE,
+        ERR_OUT_OF_MEMORY       = ERROR::OUT_OF_MEMORY,
+        ERR_UNDEFINED_BEHAVIOR  = ERROR::UNDEFINED_BEHAVIOR,
+        ERR_FORBIDDEN_CONDITION = ERROR::FORBIDDEN_CONDITION,
+        ERR_UNHANDLED_EVENTS    = ERROR::UNHANDLED_EVENTS;
+
+    inline static const char *get_code(ERROR) noexcept;
+
     struct EVENT {
         enum class TYPE : uint8_t {
             NONE = 0,
@@ -73,14 +90,14 @@ class SOCKETS final {
         const char *port, int family =AF_UNSPEC, int flags =AI_PASSIVE
     ) noexcept;
     bool connect(const char *host, const char *port, int group =0) noexcept;
-    bool serve(int timeout =-1) noexcept;
+    ERROR serve(int timeout =-1) noexcept;
     bool idle() const noexcept;
 
     struct EVENT next_event() noexcept;
 
     const char *read(int descriptor) noexcept;
     void write(int descriptor, const char *text) noexcept;
-    void writef(
+    ERROR writef(
         int descriptor, const char *fmt, ...
     ) noexcept __attribute__((format(printf, 3, 4)));
 
@@ -104,17 +121,10 @@ class SOCKETS final {
 
     private:
     static constexpr const int EPOLL_MAX_EVENTS  = 64;
-    static constexpr const size_t MAX_CACHE_SIZE = 1024 * 1024;
-
-    enum class ERROR : uint8_t {
-        NONE = 0,
-        OUT_OF_MEMORY,
-        UNDEFINED_BEHAVIOR
-    };
 
     enum class FLAG : uint8_t {
         NONE           =  0,
-        TIMEOUT        =  1,
+        TIMEOUT        =  1, // TODO: remove and implement with bitset instead
         // Do not change the order of the flags above this line.
         RECONNECT      =  2,
         READ           =  3,
@@ -127,16 +137,18 @@ class SOCKETS final {
         MAY_SHUTDOWN   = 10,
         LISTENER       = 11,
         CONNECTING     = 12,
-        FUSED          = 13,
         // Do not change the order of the flags below this line.
         EPOLL          = 14,
         MAX_FLAGS      = 15
     };
 
-    enum class CACHE : uint8_t {
-        GENERIC_INT = 0,
+    enum class BUFFER : uint8_t {
+        GENERIC_INT  = 0,
+        GENERIC_BYTE = 1,
+        WRITEF       = 2,
+        HANDLE_READ  = 3,
         // Do not change the order of items below this line.
-        MAX_CACHES  = 1
+        MAX_BUFFERS  = 4
     };
 
     struct PIPE {
@@ -237,11 +249,11 @@ class SOCKETS final {
         const addrinfo &info, const addrinfo *list
     ) noexcept;
 
-    bool handle_close(int descriptor) noexcept;
-    bool handle_epoll(int epoll_descriptor, int timeout) noexcept;
-    bool handle_read(int descriptor) noexcept;
-    bool handle_write(int descriptor) noexcept;
-    bool handle_accept(int descriptor) noexcept;
+    ERROR handle_close(int descriptor) noexcept;
+    ERROR handle_epoll(int epoll_descriptor, int timeout) noexcept;
+    ERROR handle_read(int descriptor) noexcept;
+    ERROR handle_write(int descriptor) noexcept;
+    ERROR handle_accept(int descriptor) noexcept;
 
     int connect(
         const char *host, const char *port, int group, int family, int flags,
@@ -319,7 +331,7 @@ class SOCKETS final {
     [[nodiscard]] ERROR insert(PIPE&, PIPE::ENTRY) noexcept;
     [[nodiscard]] ERROR insert(PIPE&, size_t index, PIPE::ENTRY) noexcept;
     [[nodiscard]] ERROR copy(const PIPE &src, PIPE &dst) noexcept;
-    PIPE &get_cache(CACHE) noexcept;
+    PIPE &get_buffer(BUFFER) noexcept;
 
     void log(
         const char *fmt, ...
@@ -341,15 +353,21 @@ class SOCKETS final {
 
     void (*log_callback)(const char *text) noexcept;
     INDEX indices[static_cast<size_t>(INDEX::TYPE::MAX_TYPES)];
-    PIPE  caches [static_cast<size_t>(CACHE::MAX_CACHES)];
+    PIPE  buffers[static_cast<size_t>(BUFFER::MAX_BUFFERS)];
+
+    struct bitset_type {
+        bool out_of_memory:1;
+        bool unhandled_events:1;
+    } bitset;
+
     std::vector<jack_type> descriptors[1024];
-    std::vector<uint8_t> cache;
     sigset_t sigset_all;
     sigset_t sigset_none;
     sigset_t sigset_orig;
 };
 
-SOCKETS::SOCKETS() noexcept : log_callback(nullptr), indices{}, caches{} {
+SOCKETS::SOCKETS() noexcept :
+    log_callback(nullptr), indices{}, buffers{}, bitset{} {
 }
 
 SOCKETS::~SOCKETS() {
@@ -367,8 +385,8 @@ SOCKETS::~SOCKETS() {
 }
 
 void SOCKETS::clear() noexcept {
-    for (size_t i=0; i<std::size(caches); ++i) {
-        destroy(caches[i]);
+    for (size_t i=0; i<std::size(buffers); ++i) {
+        destroy(buffers[i]);
     }
 
     for (size_t i=0; i<std::size(indices); ++i) {
@@ -387,6 +405,8 @@ void SOCKETS::clear() noexcept {
         index.buckets = 0;
         index.type = INDEX::TYPE::NONE;
     }
+
+    bitset = {};
 }
 
 bool SOCKETS::init() noexcept {
@@ -498,15 +518,42 @@ bool SOCKETS::init() noexcept {
         }
     }
 
-    for (size_t i=0; i<std::size(caches); ++i) {
-        PIPE &pipe = caches[i];
+    for (size_t i=0; i<std::size(buffers); ++i) {
+        PIPE &pipe = buffers[i];
 
-        switch (static_cast<CACHE>(i)) {
-            case CACHE::GENERIC_INT: {
+        switch (static_cast<BUFFER>(i)) {
+            case BUFFER::GENERIC_INT: {
                 pipe.type = PIPE::TYPE::INT;
                 break;
             }
-            case CACHE::MAX_CACHES: die();
+            case BUFFER::GENERIC_BYTE:
+            case BUFFER::WRITEF: {
+                pipe.type = PIPE::TYPE::UINT8;
+                break;
+            }
+            case BUFFER::HANDLE_READ: {
+                static constexpr const size_t buffer_length{
+                    1024 // TODO: make it possible to configure this
+                };
+
+                pipe.type = PIPE::TYPE::UINT8;
+
+                ERROR error{ reserve(pipe, buffer_length) };
+
+                if (error != ERROR::NONE) {
+                    log(
+                        "%s: %s (%s:%d)",
+                        __FUNCTION__, get_code(error), __FILE__, __LINE__
+                    );
+
+                    clear();
+
+                    return false;
+                }
+
+                break;
+            }
+            case BUFFER::MAX_BUFFERS: die();
         }
     }
 
@@ -562,9 +609,7 @@ int SOCKETS::listen(const char *port, int family, int flags) noexcept {
 struct SOCKETS::EVENT SOCKETS::next_event() noexcept {
     int d;
 
-    jack_type &epoll_jack = get_epoll_jack();
-    int epoll_descriptor = epoll_jack.descriptor;
-    rem_flag(epoll_descriptor, FLAG::FUSED);
+    bitset.unhandled_events = false;
 
     while (( d = next_connection() ) != NO_DESCRIPTOR) {
         return make_event(d, EV_CONNECTION);
@@ -761,15 +806,25 @@ bool SOCKETS::append_outgoing(
     return false;
 }
 
-bool SOCKETS::serve(int timeout) noexcept {
+SOCKETS::ERROR SOCKETS::serve(int timeout) noexcept {
+    if (bitset.out_of_memory) {
+        bitset.out_of_memory = false;
+        return ERROR::OUT_OF_MEMORY;
+    }
+
     if (find_jack(FLAG::NEW_CONNECTION)) {
         // We postpone serving any descriptors until the application has
         // acknowledged all the new incoming connections.
 
-        return true;
+        if (!bitset.unhandled_events) {
+            bitset.unhandled_events = true;
+            return ERROR::NONE;
+        }
+
+        return ERROR::UNHANDLED_EVENTS;
     }
 
-    PIPE &cached_descriptors = get_cache(CACHE::GENERIC_INT);
+    PIPE &cached_descriptors = get_buffer(BUFFER::GENERIC_INT);
 
     for (size_t i=0; i<size_t(FLAG::MAX_FLAGS); ++i) {
         FLAG flag = static_cast<FLAG>(i);
@@ -781,8 +836,7 @@ bool SOCKETS::serve(int timeout) noexcept {
             case FLAG::NEW_CONNECTION:
             case FLAG::DISCONNECT:
             case FLAG::CONNECTING:
-            case FLAG::MAY_SHUTDOWN:
-            case FLAG::FUSED: {
+            case FLAG::MAY_SHUTDOWN: {
                 // This flag has no handler and is to be ignored here.
 
                 continue;
@@ -802,7 +856,7 @@ bool SOCKETS::serve(int timeout) noexcept {
         );
 
         if (error != ERROR::NONE) {
-            return false; // TODO: implement better out-of-memory error handling
+            return error;
         }
 
         for (size_t j=0, sz=cached_descriptors.size; j<sz; ++j) {
@@ -813,9 +867,11 @@ bool SOCKETS::serve(int timeout) noexcept {
 
             rem_flag(d, flag);
 
+            ERROR error = ERROR::NONE;
+
             switch (flag) {
                 case FLAG::EPOLL: {
-                    if (handle_epoll(d, timeout)) continue;
+                    error = handle_epoll(d, timeout);
                     break;
                 }
                 case FLAG::CLOSE: {
@@ -828,10 +884,7 @@ bool SOCKETS::serve(int timeout) noexcept {
                         continue;
                     }
 
-                    if (handle_close(d)) {
-                        continue;
-                    }
-
+                    error = handle_close(d);
                     break;
                 }
                 case FLAG::ACCEPT: {
@@ -844,7 +897,7 @@ bool SOCKETS::serve(int timeout) noexcept {
                         continue;
                     }
 
-                    if (handle_accept(d)) continue;
+                    error = handle_accept(d);
                     break;
                 }
                 case FLAG::WRITE: {
@@ -853,7 +906,7 @@ bool SOCKETS::serve(int timeout) noexcept {
                         continue;
                     }
 
-                    if (handle_write(d)) continue;
+                    error = handle_write(d);
                     break;
                 }
                 case FLAG::READ: {
@@ -862,7 +915,7 @@ bool SOCKETS::serve(int timeout) noexcept {
                         continue;
                     }
 
-                    if (handle_read(d)) continue;
+                    error = handle_read(d);
                     break;
                 }
                 case FLAG::TIMEOUT: {
@@ -875,15 +928,20 @@ bool SOCKETS::serve(int timeout) noexcept {
                         "Flag %lu of descriptor %d was not handled.", i, d
                     );
 
+                    error = ERROR::FORBIDDEN_CONDITION;
                     break;
                 }
             }
 
-            return false;
+            if (error == ERROR::NONE) {
+                continue;
+            }
+
+            return error;
         }
     }
 
-    return true;
+    return ERROR::NONE;
 }
 
 const char *SOCKETS::read(int descriptor) noexcept {
@@ -893,19 +951,23 @@ const char *SOCKETS::read(int descriptor) noexcept {
         return "";
     }
 
-    if (cache.size() < jack->incoming->size() + 1) {
-        cache.resize(jack->incoming->size() + 1);
+    PIPE &buffer = get_buffer(BUFFER::GENERIC_BYTE);
+
+    if (reserve(buffer, jack->incoming->size() + 1) != ERROR::NONE) {
+        // TODO: implement better out-of-memory error handling (read partially).
+        return "";
     }
 
     std::memcpy(
-        cache.data(), jack->incoming->data(), jack->incoming->size()
+        buffer.data, jack->incoming->data(), jack->incoming->size()
     );
 
-    cache[jack->incoming->size()] = '\0';
+    ((uint8_t *) buffer.data)[jack->incoming->size()] = '\0';
+    buffer.size = jack->incoming->size() + 1;
 
     jack->incoming->clear();
 
-    return (const char *) cache.data();
+    return (const char *) buffer.data;
 }
 
 void SOCKETS::write(int descriptor, const char *text) noexcept {
@@ -922,7 +984,7 @@ void SOCKETS::write(int descriptor, const char *text) noexcept {
     set_flag(descriptor, FLAG::WRITE);
 }
 
-void SOCKETS::writef(int descriptor, const char *fmt, ...) noexcept {
+SOCKETS::ERROR SOCKETS::writef(int descriptor, const char *fmt, ...) noexcept {
     char stackbuf[1024];
 
     std::va_list args;
@@ -936,36 +998,37 @@ void SOCKETS::writef(int descriptor, const char *fmt, ...) noexcept {
             __FUNCTION__, fmt, __FILE__, __LINE__
         );
 
-        return;
+        return die();
     }
 
-    const jack_type *jack = find_jack(descriptor);
+    const jack_type &jack = get_jack(descriptor);
 
-    if (!jack || jack->outgoing == nullptr) {
-        return;
+    if (jack.outgoing == nullptr) {
+        return die();
     }
 
     if (size_t(retval) < sizeof(stackbuf)) {
-        jack->outgoing->insert(
-            jack->outgoing->end(), stackbuf, stackbuf + retval
+        jack.outgoing->insert(
+            jack.outgoing->end(), stackbuf, stackbuf + retval
         );
 
         set_flag(descriptor, FLAG::WRITE);
 
-        return;
+        return ERROR::NONE;
     }
+
+    PIPE &buffer = get_buffer(BUFFER::WRITEF);
 
     size_t heapbuf_sz = size_t(retval) + 1;
-    char *heapbuf = new (std::nothrow) char [heapbuf_sz];
+    char *heapbuf = nullptr;
 
-    if (heapbuf == nullptr) {
-        log(
-            "%s: out of memory when formatting '%s' (%s:%d).",
-            __FUNCTION__, fmt, __FILE__, __LINE__
-        );
+    ERROR error{ reserve(buffer, heapbuf_sz) };
 
-        return;
+    if (error != ERROR::NONE) {
+        return error;
     }
+
+    heapbuf = (char *) buffer.data;
 
     va_start(args, fmt);
     retval = vsnprintf(heapbuf, heapbuf_sz, fmt, args);
@@ -978,11 +1041,13 @@ void SOCKETS::writef(int descriptor, const char *fmt, ...) noexcept {
         );
     }
     else if (size_t(retval) < heapbuf_sz) {
-        jack->outgoing->insert(
-            jack->outgoing->end(), heapbuf, heapbuf + retval
+        jack.outgoing->insert(
+            jack.outgoing->end(), heapbuf, heapbuf + retval
         );
 
         set_flag(descriptor, FLAG::WRITE);
+
+        return ERROR::NONE;
     }
     else {
         log(
@@ -991,7 +1056,7 @@ void SOCKETS::writef(int descriptor, const char *fmt, ...) noexcept {
         );
     }
 
-    delete [] heapbuf;
+    return die();
 }
 
 void SOCKETS::log(const char *fmt, ...) const noexcept {
@@ -1064,7 +1129,7 @@ void SOCKETS::out_of_memory(const char *file, int line) const noexcept {
     log("out of memory (%s:%d)", file, line);
 }
 
-bool SOCKETS::handle_close(int descriptor) noexcept {
+SOCKETS::ERROR SOCKETS::handle_close(int descriptor) noexcept {
     if (has_flag(descriptor, FLAG::RECONNECT)) {
         jack_type &rec = get_jack(descriptor);
 
@@ -1107,18 +1172,20 @@ bool SOCKETS::handle_close(int descriptor) noexcept {
         rem_flag(descriptor, FLAG::CONNECTING);
         set_flag(descriptor, FLAG::DISCONNECT);
 
-        return true;
+        return ERROR::NONE;
     }
 
     if (!close_and_deinit(descriptor)) {
         pop(descriptor);
-        return false;
+        return ERROR::FORBIDDEN_CONDITION;
     }
 
-    return true;
+    return ERROR::NONE;
 }
 
-bool SOCKETS::handle_epoll(int epoll_descriptor, int timeout) noexcept {
+SOCKETS::ERROR SOCKETS::handle_epoll(
+    int epoll_descriptor, int timeout
+) noexcept {
     static constexpr const FLAG blockers[]{
         FLAG::NEW_CONNECTION,
         FLAG::DISCONNECT,
@@ -1132,18 +1199,18 @@ bool SOCKETS::handle_epoll(int epoll_descriptor, int timeout) noexcept {
             continue;
         }
 
-        if (!has_flag(epoll_descriptor, FLAG::FUSED)) {
-            set_flag(epoll_descriptor, FLAG::FUSED);
+        if (!bitset.unhandled_events) {
+            bitset.unhandled_events = true;
 
-            return true;
+            return ERROR::NONE;
         }
 
         log("Cannot serve sockets if there are unhandled events.\n");
 
-        return false;
+        return ERROR::UNHANDLED_EVENTS;
     }
 
-    rem_flag(epoll_descriptor, FLAG::FUSED);
+    bitset.unhandled_events = false;
 
     jack_type &jack = get_jack(epoll_descriptor);
     epoll_event *events = &(jack.events[1]);
@@ -1155,13 +1222,13 @@ bool SOCKETS::handle_epoll(int epoll_descriptor, int timeout) noexcept {
     if (pending == -1) {
         int code = errno;
 
-        if (code == EINTR) return true;
+        if (code == EINTR) return ERROR::NONE;
 
         log(
             "epoll_pwait: %s (%s:%d)", strerror(code), __FILE__, __LINE__
         );
 
-        return false;
+        return ERROR::FORBIDDEN_CONDITION;
     }
     else if (pending < 0) {
         log(
@@ -1169,7 +1236,7 @@ bool SOCKETS::handle_epoll(int epoll_descriptor, int timeout) noexcept {
             __FILE__, __LINE__
         );
 
-        return false;
+        return ERROR::FORBIDDEN_CONDITION;
     }
     else if (pending == 0) {
         set_flag(epoll_descriptor, FLAG::TIMEOUT);
@@ -1267,29 +1334,26 @@ bool SOCKETS::handle_epoll(int epoll_descriptor, int timeout) noexcept {
         }
     }
 
-    return true;
+    return ERROR::NONE;
 }
 
-bool SOCKETS::handle_read(int descriptor) noexcept {
+SOCKETS::ERROR SOCKETS::handle_read(int descriptor) noexcept {
+    // TODO: read directly to the pipework of the jack's incoming buffer in
+    // respect to its individual hard limit of incoming bytes.
+
     jack_type &jack = get_jack(descriptor);
-
-    if (!jack.incoming->empty()) {
-        set_flag(descriptor, FLAG::READ);
-        set_flag(descriptor, FLAG::INCOMING);
-
-        return true;
-    }
-
-    if (cache.size() < 1024) {
-        cache.resize(1024);
-    }
+    PIPE &buffer = get_buffer(BUFFER::HANDLE_READ);
 
     for (size_t total_count = 0;;) {
         ssize_t count;
-        char *buf = (char *) cache.data();
-        const size_t buf_sz = cache.size();
+        char *buf = (char *) buffer.data;
+        const size_t buf_sz = buffer.capacity;
 
-        if ((count = ::read(descriptor, buf, buf_sz)) < 0) {
+        if (!buf_sz) {
+            set_flag(descriptor, FLAG::READ);
+            return ERROR::NONE;
+        }
+        else if ((count = ::read(descriptor, buf, buf_sz)) < 0) {
             if (count == -1) {
                 int code = errno;
 
@@ -1298,7 +1362,7 @@ bool SOCKETS::handle_read(int descriptor) noexcept {
                         rem_flag(descriptor, FLAG::READ);
                     }
 
-                    return true;
+                    return ERROR::NONE;
                 }
 
                 log(
@@ -1330,28 +1394,25 @@ bool SOCKETS::handle_read(int descriptor) noexcept {
 
         total_count += count;
 
-        if (size_t(count) == buf_sz && cache.size() < MAX_CACHE_SIZE) {
-            cache.resize(std::min(2 * cache.size(), MAX_CACHE_SIZE));
-        }
-
-        if (total_count >= MAX_CACHE_SIZE) {
-            return true;
-        }
+        //if (size_t(count) == buf_sz && buffer.capacity < MAX_CACHE_SIZE) {
+        //    TODO: request for the expansion of the buffer
+        //    reserve(buffer, std::min(2 * buffer.capacity, MAX_CACHE_SIZE));
+        //}
     }
 
     rem_flag(descriptor, FLAG::MAY_SHUTDOWN);
     terminate(descriptor);
 
-    return true;
+    return ERROR::NONE;
 }
 
-bool SOCKETS::handle_write(int descriptor) noexcept {
+SOCKETS::ERROR SOCKETS::handle_write(int descriptor) noexcept {
     jack_type &jack = get_jack(descriptor);
 
     std::vector<uint8_t> *outgoing = jack.outgoing;
 
     if (outgoing->empty()) {
-        return true;
+        return ERROR::NONE;
     }
 
     const unsigned char *bytes = &(outgoing->at(0));
@@ -1402,13 +1463,21 @@ bool SOCKETS::handle_write(int descriptor) noexcept {
     }
 
     if (try_again_later) {
-        return modify_epoll(descriptor, EPOLLIN|EPOLLET|EPOLLRDHUP);
+        return (
+            modify_epoll(descriptor, EPOLLIN|EPOLLET|EPOLLRDHUP) ? (
+                ERROR::NONE
+            ) : ERROR::FORBIDDEN_CONDITION
+        );
     }
 
-    return modify_epoll(descriptor, EPOLLIN|EPOLLOUT|EPOLLET|EPOLLRDHUP);
+    return (
+        modify_epoll(descriptor, EPOLLIN|EPOLLOUT|EPOLLET|EPOLLRDHUP) ? (
+            ERROR::NONE
+        ) : ERROR::FORBIDDEN_CONDITION
+    );
 }
 
-bool SOCKETS::handle_accept(int descriptor) noexcept {
+SOCKETS::ERROR SOCKETS::handle_accept(int descriptor) noexcept {
     // New incoming connection detected.
     jack_type &epoll_jack = get_epoll_jack();
     int epoll_descriptor = epoll_jack.descriptor;
@@ -1433,7 +1502,7 @@ bool SOCKETS::handle_accept(int descriptor) noexcept {
                 case EWOULDBLOCK: {
                     // Everything is normal.
 
-                    return true;
+                    return ERROR::NONE;
                 }
                 case ENETDOWN:
                 case EPROTO:
@@ -1452,12 +1521,12 @@ bool SOCKETS::handle_accept(int descriptor) noexcept {
 
                     set_flag(descriptor, FLAG::ACCEPT);
 
-                    return true;
+                    return ERROR::NONE;
                 }
                 case EINTR: {
                     set_flag(descriptor, FLAG::ACCEPT);
 
-                    return true;
+                    return ERROR::NONE;
                 }
                 default: {
                     // These errors are fatal.
@@ -1484,7 +1553,7 @@ bool SOCKETS::handle_accept(int descriptor) noexcept {
             pop(descriptor);
         }
 
-        return false;
+        return ERROR::FORBIDDEN_CONDITION;
     }
 
     ERROR error{push(make_jack(client_descriptor, descriptor, 0))};
@@ -1494,7 +1563,7 @@ bool SOCKETS::handle_accept(int descriptor) noexcept {
             pop(client_descriptor);
         }
 
-        return false;
+        return ERROR::FORBIDDEN_CONDITION;
     }
 
     jack_type &client_jack = get_jack(client_descriptor);
@@ -1510,7 +1579,7 @@ bool SOCKETS::handle_accept(int descriptor) noexcept {
             pop(client_descriptor);
         }
 
-        return false;
+        return ERROR::FORBIDDEN_CONDITION;
     }
 
     int retval = getnameinfo(
@@ -2391,12 +2460,12 @@ const SOCKETS::PIPE *SOCKETS::find_descriptors(FLAG flag) const noexcept {
     return nullptr;
 }
 
-SOCKETS::PIPE &SOCKETS::get_cache(CACHE cache) noexcept {
-    size_t index = size_t(cache);
+SOCKETS::PIPE &SOCKETS::get_buffer(BUFFER buffer) noexcept {
+    size_t index = size_t(buffer);
 
-    if (index >= std::size(caches)) die();
+    if (index >= std::size(buffers)) die();
 
-    return caches[index];
+    return buffers[index];
 }
 
 bool SOCKETS::modify_epoll(int descriptor, uint32_t events) noexcept {
@@ -3236,6 +3305,18 @@ bool SOCKETS::is_listed(const addrinfo &info, const addrinfo *list) noexcept {
     }
 
     return false;
+}
+
+const char *SOCKETS::get_code(ERROR error) noexcept {
+    switch (error) {
+        case ERROR::NONE:                return "NONE";
+        case ERROR::OUT_OF_MEMORY:       return "OUT_OF_MEMORY";
+        case ERROR::UNDEFINED_BEHAVIOR:  return "UNDEFINED_BEHAVIOR";
+        case ERROR::FORBIDDEN_CONDITION: return "FORBIDDEN_CONDITION";
+        case ERROR::UNHANDLED_EVENTS:    return "UNHANDLED_EVENTS";
+    }
+
+    return "UNKNOWN_ERROR";
 }
 
 #endif

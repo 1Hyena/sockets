@@ -24,18 +24,19 @@ int main(int argc, char **argv) {
     int tcp_listener = sockets.listen(SERVER_PORT);
 
     if (tcp_listener != SOCKETS::NO_DESCRIPTOR) {
-        constexpr int timeout_milliseconds = 3000;
+        constexpr int timeout_ms = 3000;
+        SOCKETS::ERROR error;
 
         printf(
             "Listening for TCP connections on %s:%s.\n",
             sockets.get_host(tcp_listener), sockets.get_port(tcp_listener)
         );
 
-        while (sockets.serve(timeout_milliseconds)) {
+        while ((error = sockets.serve(timeout_ms)) == SOCKETS::ERR_NONE) {
             if (sockets.idle()) {
                 printf(
                     "Nothing happened in the last %d seconds.\n",
-                    timeout_milliseconds / 1000
+                    timeout_ms / 1000
                 );
             }
             else {
@@ -43,7 +44,7 @@ int main(int argc, char **argv) {
             }
         }
 
-        printf("%s", "Error serving the sockets.\n");
+        printf("Error serving the sockets (%s).\n", sockets.get_code(error));
         sockets.disconnect(tcp_listener);
     }
 
