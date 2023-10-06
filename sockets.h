@@ -142,6 +142,7 @@ class SOCKETS final {
     struct PIPE {
         enum class TYPE : uint8_t {
             NONE = 0,
+            UINT8,
             UINT64,
             INT,
             JACK_PTR
@@ -149,6 +150,7 @@ class SOCKETS final {
 
         struct ENTRY {
             union {
+                uint8_t  as_uint8;
                 uint64_t as_uint64;
                 int      as_int;
                 void    *as_ptr;
@@ -2615,6 +2617,15 @@ SOCKETS::INDEX::ENTRY SOCKETS::find(
 
         if (value.type != PIPE::TYPE::NONE) {
             switch (value_pipe.type) {
+                case PIPE::TYPE::UINT8: {
+                    const uint8_t *vd = (const uint8_t *) value_pipe.data;
+
+                    if (vd[i] != value.as_uint8) {
+                        continue;
+                    }
+
+                    break;
+                }
                 case PIPE::TYPE::UINT64: {
                     const uint64_t *vd = (const uint64_t *) value_pipe.data;
 
@@ -2752,6 +2763,16 @@ size_t SOCKETS::erase(
 
         if (value.type != PIPE::TYPE::NONE) {
             switch (val_pipe.type) {
+                case PIPE::TYPE::UINT8: {
+                    const uint8_t *vd = (const uint8_t *) val_pipe.data;
+
+                    if (vd[i] != value.as_uint8) {
+                        i = index.multimap ? i-1 : key_pipe.size;
+                        continue;
+                    }
+
+                    break;
+                }
                 case PIPE::TYPE::UINT64: {
                     const uint64_t *vd = (const uint64_t *) val_pipe.data;
 
@@ -2852,6 +2873,10 @@ SOCKETS::ERROR SOCKETS::insert(
     }
 
     switch (pipe.type) {
+        case PIPE::TYPE::UINT8: {
+            ((uint8_t *) pipe.data)[index] = value.as_uint8;
+            break;
+        }
         case PIPE::TYPE::UINT64: {
             ((uint64_t *) pipe.data)[index] = value.as_uint64;
             break;
@@ -2880,6 +2905,25 @@ SOCKETS::ERROR SOCKETS::reserve(PIPE &pipe, size_t capacity) noexcept {
     }
 
     switch (pipe.type) {
+        case PIPE::TYPE::UINT8: {
+            uint8_t *new_data = new (std::nothrow) uint8_t [capacity];
+
+            if (!new_data) {
+                return ERROR::OUT_OF_MEMORY;
+            }
+
+            uint8_t *old_data = (uint8_t *) pipe.data;
+
+            if (old_data) {
+                std::memcpy(new_data, old_data, pipe.size * sizeof(uint8_t));
+                delete [] old_data;
+            }
+
+            pipe.data = new_data;
+            pipe.capacity = capacity;
+
+            break;
+        }
         case PIPE::TYPE::UINT64: {
             uint64_t *new_data = new (std::nothrow) uint64_t [capacity];
 
@@ -2967,6 +3011,10 @@ SOCKETS::ERROR SOCKETS::copy(const PIPE &src, PIPE &dst) noexcept {
     }
 
     switch (dst.type) {
+        case PIPE::TYPE::UINT8: {
+            std::memcpy(dst.data, src.data, dst.size * sizeof(uint8_t));
+            break;
+        }
         case PIPE::TYPE::UINT64: {
             std::memcpy(dst.data, src.data, dst.size * sizeof(uint64_t));
             break;
@@ -2996,6 +3044,11 @@ void SOCKETS::erase(PIPE &pipe, size_t index) noexcept {
     }
 
     switch (pipe.type) {
+        case PIPE::TYPE::UINT8: {
+            uint8_t *data = (uint8_t *) pipe.data;
+            data[index] = data[pipe.size-1];
+            break;
+        }
         case PIPE::TYPE::UINT64: {
             uint64_t *data = (uint64_t *) pipe.data;
             data[index] = data[pipe.size-1];
@@ -3019,6 +3072,11 @@ void SOCKETS::erase(PIPE &pipe, size_t index) noexcept {
 
 void SOCKETS::destroy(PIPE &pipe) noexcept {
     switch (pipe.type) {
+        case PIPE::TYPE::UINT8: {
+            if (pipe.data) delete [] ((uint8_t *) pipe.data);
+
+            break;
+        }
         case PIPE::TYPE::UINT64: {
             if (pipe.data) delete [] ((uint64_t *) pipe.data);
 
