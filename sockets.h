@@ -162,7 +162,7 @@ class SOCKETS final {
             UINT8,
             UINT64,
             INT,
-            JACK_PTR, // TODO: remove this, it's not needed after all
+            PTR,
             MEMORY
         };
 
@@ -229,6 +229,10 @@ class SOCKETS final {
         } bitset;
     };
 
+    inline static constexpr MEMORY make_memory(
+        uint8_t *data, size_t size
+    ) noexcept;
+
     inline static constexpr struct jack_type make_jack(
         int descriptor, int parent, int group
     ) noexcept;
@@ -245,21 +249,9 @@ class SOCKETS final {
         const PIPE &keys, const PIPE &values, size_t index, ERROR
     ) noexcept;
 
-    inline static constexpr struct PIPE::ENTRY make_pipe_entry(
-        uint64_t value
-    ) noexcept;
-
-    inline static constexpr struct PIPE::ENTRY make_pipe_entry(
-        int value
-    ) noexcept;
-
-    inline static constexpr struct PIPE::ENTRY make_pipe_entry(
-        MEMORY value
-    ) noexcept;
-
-    inline static constexpr struct MEMORY make_memory(
-        uint8_t *data, size_t size
-    ) noexcept;
+    inline static constexpr PIPE::ENTRY make_pipe_entry(uint64_t) noexcept;
+    inline static constexpr PIPE::ENTRY make_pipe_entry(int     ) noexcept;
+    inline static constexpr PIPE::ENTRY make_pipe_entry(MEMORY  ) noexcept;
 
     inline static bool is_listed(
         const addrinfo &info, const addrinfo *list
@@ -303,8 +295,8 @@ class SOCKETS final {
 
     size_t close_and_deinit(int descriptor) noexcept;
 
-    [[nodiscard]] ERROR push(const jack_type jack) noexcept;
-    jack_type pop(int descriptor) noexcept;
+    [[nodiscard]] ERROR push(const jack_type jack) noexcept; // TODO: remove
+    jack_type pop(int descriptor) noexcept; // TODO: remove
 
     const jack_type *find_jack(int descriptor) const noexcept;
     jack_type *find_jack(int descriptor) noexcept;
@@ -343,11 +335,14 @@ class SOCKETS final {
     ) noexcept;
     void erase(PIPE &pipe, size_t index) noexcept;
     void destroy(PIPE &pipe) noexcept;
+    PIPE::ENTRY pop_back(PIPE &pipe) noexcept;
     [[nodiscard]] ERROR reserve(PIPE&, size_t capacity) noexcept;
     [[nodiscard]] ERROR insert(PIPE&, PIPE::ENTRY) noexcept;
     [[nodiscard]] ERROR insert(PIPE&, size_t index, PIPE::ENTRY) noexcept;
     [[nodiscard]] ERROR copy(const PIPE &src, PIPE &dst) noexcept;
     PIPE &get_buffer(BUFFER) noexcept;
+
+    MEMORY to_memory(PIPE::ENTRY) noexcept;
 
     const MEMORY *allocate(size_t bytes, const void *copy =nullptr) noexcept;
     void deallocate(void *) noexcept;
@@ -406,14 +401,11 @@ SOCKETS::~SOCKETS() {
 }
 
 void SOCKETS::clear() noexcept {
-    {
-        for (size_t i=0, sz=mempool.size; i<sz; ++i) {
-            MEMORY &memory = ((MEMORY *) mempool.data)[i];
-            delete [] memory.data;
-        }
-
-        destroy(mempool);
+    while (mempool.size) {
+        deallocate(to_memory(pop_back(mempool)).data);
     }
+
+    destroy(mempool);
 
     for (size_t i=0; i<std::size(buffers); ++i) {
         destroy(buffers[i]);
@@ -2509,6 +2501,14 @@ SOCKETS::PIPE &SOCKETS::get_buffer(BUFFER buffer) noexcept {
     return buffers[index];
 }
 
+SOCKETS::MEMORY SOCKETS::to_memory(PIPE::ENTRY entry) noexcept {
+    if (entry.type != PIPE::TYPE::MEMORY) {
+        die();
+    }
+
+    return entry.as_memory;
+}
+
 bool SOCKETS::modify_epoll(int descriptor, uint32_t events) noexcept {
     jack_type &epoll_jack = get_epoll_jack();
     int epoll_descriptor = epoll_jack.descriptor;
@@ -2754,7 +2754,7 @@ SOCKETS::INDEX::ENTRY SOCKETS::find(
 
                     break;
                 }
-                case PIPE::TYPE::JACK_PTR: {
+                case PIPE::TYPE::PTR: {
                     const void **vd = (const void **) value_pipe.data;
 
                     if (vd[i] != value.as_ptr) {
@@ -2908,7 +2908,7 @@ size_t SOCKETS::erase(
 
                     break;
                 }
-                case PIPE::TYPE::JACK_PTR: {
+                case PIPE::TYPE::PTR: {
                     const void **vd = (const void **) val_pipe.data;
 
                     if (vd[i] != value.as_ptr) {
@@ -3010,7 +3010,7 @@ SOCKETS::ERROR SOCKETS::insert(
             ((int *) pipe.data)[index] = value.as_int;
             break;
         }
-        case PIPE::TYPE::JACK_PTR: {
+        case PIPE::TYPE::PTR: {
             ((void **) pipe.data)[index] = value.as_ptr;
             break;
         }
@@ -3091,7 +3091,7 @@ SOCKETS::ERROR SOCKETS::reserve(PIPE &pipe, size_t capacity) noexcept {
 
             break;
         }
-        case PIPE::TYPE::JACK_PTR: {
+        case PIPE::TYPE::PTR: {
             void **new_data = new (std::nothrow) void* [capacity];
 
             if (!new_data) {
@@ -3171,7 +3171,7 @@ SOCKETS::ERROR SOCKETS::copy(const PIPE &src, PIPE &dst) noexcept {
             std::memcpy(dst.data, src.data, dst.size * sizeof(int));
             break;
         }
-        case PIPE::TYPE::JACK_PTR: {
+        case PIPE::TYPE::PTR: {
             std::memcpy(dst.data, src.data, dst.size * sizeof(void*));
             break;
         }
@@ -3211,7 +3211,7 @@ void SOCKETS::erase(PIPE &pipe, size_t index) noexcept {
             data[index] = data[pipe.size-1];
             break;
         }
-        case PIPE::TYPE::JACK_PTR: {
+        case PIPE::TYPE::PTR: {
             void **data = (void **) pipe.data;
             data[index] = data[pipe.size-1];
             break;
@@ -3225,6 +3225,48 @@ void SOCKETS::erase(PIPE &pipe, size_t index) noexcept {
     }
 
     --pipe.size;
+}
+
+SOCKETS::PIPE::ENTRY SOCKETS::pop_back(PIPE &pipe) noexcept {
+    size_t size = pipe.size;
+
+    if (!size) {
+        die();
+        return {};
+    }
+
+    void *data = pipe.data;
+    PIPE::ENTRY entry{};
+
+    entry.type = pipe.type;
+
+    switch (pipe.type) {
+        case PIPE::TYPE::UINT8: {
+            entry.as_uint8 = static_cast<uint8_t *>(data)[size - 1];
+            break;
+        }
+        case PIPE::TYPE::UINT64: {
+            entry.as_uint64 = static_cast<uint64_t *>(data)[size - 1];
+            break;
+        }
+        case PIPE::TYPE::INT: {
+            entry.as_int = static_cast<int *>(data)[size - 1];
+            break;
+        }
+        case PIPE::TYPE::PTR: {
+            entry.as_ptr = static_cast<void **>(data)[size - 1];
+            break;
+        }
+        case PIPE::TYPE::MEMORY: {
+            entry.as_memory = static_cast<MEMORY *>(data)[size - 1];
+            break;
+        }
+        case PIPE::TYPE::NONE: die(); break;
+    }
+
+    erase(pipe, size - 1);
+
+    return entry;
 }
 
 void SOCKETS::destroy(PIPE &pipe) noexcept {
@@ -3244,7 +3286,7 @@ void SOCKETS::destroy(PIPE &pipe) noexcept {
 
             break;
         }
-        case PIPE::TYPE::JACK_PTR: {
+        case PIPE::TYPE::PTR: {
             if (pipe.data) delete [] ((void **) pipe.data);
 
             break;
