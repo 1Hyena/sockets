@@ -2,10 +2,19 @@
 #include "../../sockets.h"
 #include <cstdlib>
 
+volatile sig_atomic_t interruption = 0;
+
 static void handle(SOCKETS &sockets);
+
+void interruption_handler(int) {
+    interruption = 1;
+}
 
 int main(int argc, char **argv) {
     static constexpr const char *SERVER_PORT = "4000";
+
+    std::signal(SIGINT, interruption_handler);
+
     SOCKETS sockets;
 
     printf("Initializing networking using SOCKETS v%s.\n", SOCKETS::VERSION);
@@ -42,9 +51,19 @@ int main(int argc, char **argv) {
             else {
                 handle(sockets);
             }
+
+            if (interruption) {
+                printf("Shutting down due to interruption.\n");
+                break;
+            }
         }
 
-        printf("Error serving the sockets (%s).\n", sockets.get_code(error));
+        if (error != SOCKETS::ERR_NONE) {
+            printf(
+                "Error serving the sockets (%s).\n", sockets.get_code(error)
+            );
+        }
+
         sockets.disconnect(tcp_listener);
     }
 

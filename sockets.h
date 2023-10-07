@@ -145,10 +145,11 @@ class SOCKETS final {
     enum class BUFFER : uint8_t {
         GENERIC_INT  = 0,
         GENERIC_BYTE = 1,
-        WRITEF       = 2,
-        HANDLE_READ  = 3,
+        SERVE        = 2,
+        WRITEF       = 3,
+        HANDLE_READ  = 4,
         // Do not change the order of items below this line.
-        MAX_BUFFERS  = 4
+        MAX_BUFFERS  = 5
     };
 
     struct MEMORY {
@@ -260,6 +261,8 @@ class SOCKETS final {
         const addrinfo &info, const addrinfo *list
     ) noexcept;
 
+    inline static FLAG next(FLAG) noexcept;
+
     ERROR handle_close(int descriptor) noexcept;
     ERROR handle_epoll(int epoll_descriptor, int timeout) noexcept;
     ERROR handle_read(int descriptor) noexcept;
@@ -350,6 +353,7 @@ class SOCKETS final {
 
     MEMORY     to_memory(PIPE::ENTRY) const noexcept;
     jack_type *to_jack  (PIPE::ENTRY) const noexcept;
+    int        to_int   (PIPE::ENTRY) const noexcept;
 
     const MEMORY *allocate(size_t bytes, const void *copy =nullptr) noexcept;
     void deallocate(const void *) noexcept;
@@ -377,6 +381,7 @@ class SOCKETS final {
     INDEX indices[static_cast<size_t>(INDEX::TYPE::MAX_TYPES)];
     PIPE  buffers[static_cast<size_t>(BUFFER::MAX_BUFFERS)];
     PIPE  mempool;
+    FLAG  serving;
 
     struct bitset_type {
         bool out_of_memory:1;
@@ -389,7 +394,8 @@ class SOCKETS final {
 };
 
 SOCKETS::SOCKETS() noexcept :
-    log_callback(nullptr), indices{}, buffers{}, mempool{}, bitset{} {
+    log_callback(nullptr), indices{}, buffers{}, mempool{}, serving{},
+    bitset{} {
 }
 
 SOCKETS::~SOCKETS() {
@@ -407,6 +413,8 @@ SOCKETS::~SOCKETS() {
 }
 
 void SOCKETS::clear() noexcept {
+    serving = FLAG::NONE;
+
     while (mempool.size) {
         deallocate(to_memory(pop_back(mempool)).data);
     }
@@ -557,6 +565,7 @@ bool SOCKETS::init() noexcept {
         PIPE &pipe = buffers[i];
 
         switch (static_cast<BUFFER>(i)) {
+            case BUFFER::SERVE:
             case BUFFER::GENERIC_INT: {
                 pipe.type = PIPE::TYPE::INT;
                 break;
@@ -630,6 +639,7 @@ bool SOCKETS::deinit() noexcept {
             if (!close_and_deinit(descriptor)) {
                 // If for some reason we couldn't close the descriptor,
                 // we still need to deallocate the related memmory.
+
                 pop(descriptor);
                 success = false;
             }
@@ -867,10 +877,14 @@ SOCKETS::ERROR SOCKETS::serve(int timeout) noexcept {
         return ERROR::UNHANDLED_EVENTS;
     }
 
-    PIPE &cached_descriptors = get_buffer(BUFFER::GENERIC_INT);
+    PIPE &descriptor_buffer = get_buffer(BUFFER::SERVE);
 
-    for (size_t i=0; i<size_t(FLAG::MAX_FLAGS); ++i) {
-        FLAG flag = static_cast<FLAG>(i);
+    if (serving == FLAG::NONE) {
+        serving = next(serving);
+    }
+
+    for (; serving != FLAG::NONE; serving = next(serving)) {
+        FLAG flag = serving;
 
         switch (flag) {
             case FLAG::RECONNECT:
@@ -895,15 +909,15 @@ SOCKETS::ERROR SOCKETS::serve(int timeout) noexcept {
             // TODO: if it is possible for descriptors to be closed and reused
             // during a single iteration cycle, then bad things would happen.
             // check if this is a case here and implement a fix if necessary.
-            *flagged_descriptors, cached_descriptors
+            *flagged_descriptors, descriptor_buffer
         );
 
         if (error != ERROR::NONE) {
             return error;
         }
 
-        for (size_t j=0, sz=cached_descriptors.size; j<sz; ++j) {
-            int d = ((int *) cached_descriptors.data)[j];
+        for (size_t j=0, sz=descriptor_buffer.size; j<sz; ++j) {
+            int d = to_int(get_entry(descriptor_buffer, j));
             const jack_type *jack = find_jack(d);
 
             if (jack == nullptr) continue;
@@ -968,7 +982,8 @@ SOCKETS::ERROR SOCKETS::serve(int timeout) noexcept {
                 }
                 default: {
                     log(
-                        "Flag %lu of descriptor %d was not handled.", i, d
+                        "Flag %lu of descriptor %d was not handled.",
+                        static_cast<size_t>(flag), d
                     );
 
                     error = ERROR::FORBIDDEN_CONDITION;
@@ -2285,9 +2300,12 @@ size_t SOCKETS::close_and_deinit(int descriptor) noexcept {
         }
 
         if (close_children_of != NO_DESCRIPTOR) {
-            std::vector<int> to_be_closed;
+            int descriptor_buffer[1024];
+            size_t to_be_closed = 0;
 
             INDEX &index = get_index(INDEX::TYPE::DESCRIPTOR_JACK);
+
+            Again:
 
             for (size_t bucket=0; bucket < index.buckets; ++bucket) {
                 // TODO: optimize this (use a special index?)
@@ -2300,38 +2318,53 @@ size_t SOCKETS::close_and_deinit(int descriptor) noexcept {
                         continue;
                     }
 
-                    to_be_closed.emplace_back(rec->descriptor);
+                    if (to_be_closed < std::size(descriptor_buffer)) {
+                        descriptor_buffer[to_be_closed++] = rec->descriptor;
+                    }
+                    else {
+                        goto CloseDescriptors;
+                    }
                 }
             }
 
-            for (int d : to_be_closed) {
-                retval = close(d);
+            CloseDescriptors:
 
-                if (retval == -1) {
-                    int code = errno;
-                    log(
-                        "close(%d): %s (%s:%d)", d,
-                        strerror(code), __FILE__, __LINE__
-                    );
-                }
-                else if (retval != 0) {
-                    log(
-                        "close(%d): unexpected return value %d (%s:%d)",
-                        d, retval, __FILE__, __LINE__
-                    );
-                }
-                else {
-                    jack = pop(d);
+            if (to_be_closed) {
+                for (size_t i=0; i<to_be_closed; ++i) {
+                    int d = descriptor_buffer[i];
 
-                    if (jack.descriptor == NO_DESCRIPTOR) {
+                    retval = close(d);
+
+                    if (retval == -1) {
+                        int code = errno;
                         log(
-                            "descriptor %d closed but jack not found "
-                            "(%s:%d)", d, __FILE__, __LINE__
+                            "close(%d): %s (%s:%d)", d,
+                            strerror(code), __FILE__, __LINE__
                         );
                     }
+                    else if (retval != 0) {
+                        log(
+                            "close(%d): unexpected return value %d (%s:%d)",
+                            d, retval, __FILE__, __LINE__
+                        );
+                    }
+                    else {
+                        jack = pop(d);
 
-                    ++closed;
+                        if (jack.descriptor == NO_DESCRIPTOR) {
+                            log(
+                                "descriptor %d closed but jack not found "
+                                "(%s:%d)", d, __FILE__, __LINE__
+                            );
+                        }
+
+                        ++closed;
+                    }
                 }
+
+                to_be_closed = 0;
+
+                goto Again;
             }
         }
     }
@@ -2428,12 +2461,10 @@ SOCKETS::jack_type SOCKETS::pop(int descriptor) noexcept {
 
         if (!erased) die();
 
-        deallocate(jack);
+        deallocate(jack); // TODO: recycle instead
 
         return make_jack(descriptor, parent_descriptor, 0);
     }
-
-    die();
 
     return make_jack(NO_DESCRIPTOR, NO_DESCRIPTOR, 0);
 }
@@ -2548,19 +2579,21 @@ SOCKETS::INDEX &SOCKETS::get_index(INDEX::TYPE index_type) noexcept {
 }
 
 SOCKETS::MEMORY SOCKETS::to_memory(PIPE::ENTRY entry) const noexcept {
-    if (entry.type != PIPE::TYPE::MEMORY) {
-        die();
-    }
+    if (entry.type != PIPE::TYPE::MEMORY) die();
 
     return entry.as_memory;
 }
 
 SOCKETS::jack_type *SOCKETS::to_jack(PIPE::ENTRY entry) const noexcept {
-    if (entry.type != PIPE::TYPE::JACK_PTR) {
-        die();
-    }
+    if (entry.type != PIPE::TYPE::JACK_PTR) die();
 
     return static_cast<jack_type *>(entry.as_ptr);
+}
+
+int SOCKETS::to_int(PIPE::ENTRY entry) const noexcept {
+    if (entry.type != PIPE::TYPE::INT) die();
+
+    return entry.as_int;
 }
 
 bool SOCKETS::modify_epoll(int descriptor, uint32_t events) noexcept {
@@ -3671,6 +3704,12 @@ const char *SOCKETS::get_code(ERROR error) noexcept {
     }
 
     return "UNKNOWN_ERROR";
+}
+
+SOCKETS::FLAG SOCKETS::next(FLAG flag) noexcept {
+    return static_cast<FLAG>(
+        (static_cast<size_t>(flag) + 1) % static_cast<size_t>(FLAG::MAX_FLAGS)
+    );
 }
 
 #endif
