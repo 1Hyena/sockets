@@ -146,7 +146,6 @@ class SOCKETS final {
         SERVE,
         WRITEF,
         HANDLE_READ,
-        HANDLE_WRITE,
         // Do not change the order of items below this line.
         MAX_BUFFERS
     };
@@ -587,7 +586,6 @@ bool SOCKETS::init() noexcept {
                 pipe.type = PIPE::TYPE::UINT8;
                 break;
             }
-            case BUFFER::HANDLE_WRITE:
             case BUFFER::HANDLE_READ: {
                 static constexpr const size_t buffer_length{
                     1024 // TODO: make it possible to configure this
@@ -1532,8 +1530,9 @@ SOCKETS::ERROR SOCKETS::handle_write(int descriptor) noexcept {
     ssize_t nwrite;
 
     for (istart = 0; istart<length; istart+=nwrite) {
+        static constexpr const size_t max_chunk = 1024 * 1024;
         size_t buf = length - istart;
-        size_t nblock = (buf < 4096 ? buf : 4096);
+        size_t nblock = (buf < max_chunk ? buf : max_chunk);
 
         nwrite = ::write(descriptor, bytes+istart, nblock);
 
@@ -1547,8 +1546,7 @@ SOCKETS::ERROR SOCKETS::handle_write(int descriptor) noexcept {
                 }
                 else {
                     log(
-                        "write: %s (%s:%d)", strerror(code),
-                        __FILE__, __LINE__
+                        "write: %s (%s:%d)", strerror(code), __FILE__, __LINE__
                     );
                 }
             }
@@ -1563,30 +1561,13 @@ SOCKETS::ERROR SOCKETS::handle_write(int descriptor) noexcept {
     if (istart == length) {
         outgoing.size = 0;
     }
+    else if (istart > outgoing.size) die();
     else if (istart > 0) {
-        PIPE &buffer = get_buffer(BUFFER::HANDLE_WRITE);
+        size_t new_size = outgoing.size - istart;
 
-        const PIPE wrapper{
-            make_pipe(to_uint8(outgoing) + istart, outgoing.size - istart)
-        };
+        std::memmove(outgoing.data, to_uint8(outgoing) + istart, new_size);
 
-        {
-            ERROR error{ copy(wrapper, buffer) };
-
-            if (error != ERROR::NONE) {
-                // TODO: figure out how to overcome errors here
-                return error;
-            }
-        }
-
-        {
-            ERROR error{ copy(buffer, outgoing) };
-
-            if (error != ERROR::NONE) {
-                // TODO: figure out how to overcome errors here
-                return error;
-            }
-        }
+        outgoing.size = new_size;
 
         if (try_again_later) {
             set_flag(descriptor, FLAG::WRITE);
