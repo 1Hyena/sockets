@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include "../../sockets.h"
 #include <cstdlib>
+#include <vector>
 
 volatile sig_atomic_t interruption = 0;
 
@@ -102,16 +103,16 @@ static void handle(SOCKETS &sockets) {
                 continue;
             }
             case SOCKETS::EV_INCOMING: {
-                sockets.swap_incoming(d, buffer);
+                buffer.resize(std::max(buffer.capacity(), sockets.incoming(d)));
+
+                size_t count = sockets.read(d, buffer.data(), buffer.size());
 
                 printf(
                     "Received %lu byte%s from descriptor %d.\n",
-                    buffer.size(), buffer.size() == 1 ? "" : "s", d
+                    count, count == 1 ? "" : "s", d
                 );
 
-                sockets.write(d, buffer.data(), buffer.size());
-
-                buffer.clear();
+                sockets.write(d, buffer.data(), count);
 
                 continue;
             }
