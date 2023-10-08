@@ -197,8 +197,8 @@ class SOCKETS final {
         };
 
         struct ENTRY {
-            const PIPE *key_pipe;
-            const PIPE *val_pipe;
+            PIPE *key_pipe;
+            PIPE *val_pipe;
             size_t index;
             ERROR error;
             bool valid:1;
@@ -244,11 +244,11 @@ class SOCKETS final {
     ) noexcept;
 
     inline static constexpr struct INDEX::ENTRY make_index_entry(
-        const PIPE &keys, const PIPE &values, size_t index, ERROR, bool valid
+        PIPE &keys, PIPE &values, size_t index, ERROR, bool valid
     ) noexcept;
 
     inline static constexpr struct INDEX::ENTRY make_index_entry(
-        const PIPE &keys, const PIPE &values, size_t index, ERROR
+        PIPE &keys, PIPE &values, size_t index, ERROR
     ) noexcept;
 
     inline static constexpr PIPE make_pipe(
@@ -347,6 +347,8 @@ class SOCKETS final {
     ) noexcept;
     void erase(PIPE &pipe, size_t index) noexcept;
     void destroy(PIPE &pipe) noexcept;
+    void set_value(INDEX::ENTRY, PIPE::ENTRY) noexcept;
+    PIPE::ENTRY get_value(INDEX::ENTRY) const noexcept;
     PIPE::ENTRY get_entry(const PIPE &pipe, size_t index) const noexcept;
     PIPE::ENTRY get_last(const PIPE &pipe) const noexcept;
     PIPE::ENTRY pop_back(PIPE &pipe) noexcept;
@@ -355,6 +357,7 @@ class SOCKETS final {
     [[nodiscard]] ERROR insert(PIPE&, size_t index, PIPE::ENTRY) noexcept;
     [[nodiscard]] ERROR copy(const PIPE &src, PIPE &dst) noexcept;
     [[nodiscard]] ERROR append(const PIPE &src, PIPE &dst) noexcept;
+    void replace(PIPE&, size_t index, PIPE::ENTRY) noexcept;
     ERROR swap(PIPE &, PIPE &) noexcept;
     PIPE &get_buffer(BUFFER) noexcept;
     INDEX &get_index(INDEX::TYPE) noexcept;
@@ -362,6 +365,7 @@ class SOCKETS final {
     MEMORY     to_memory(PIPE::ENTRY) const noexcept;
     jack_type *to_jack  (PIPE::ENTRY) const noexcept;
     int        to_int   (PIPE::ENTRY) const noexcept;
+    uint64_t   to_uint64(PIPE::ENTRY) const noexcept;
 
     uint8_t *to_uint8 (PIPE &) const noexcept;
 
@@ -2616,6 +2620,12 @@ int SOCKETS::to_int(PIPE::ENTRY entry) const noexcept {
     return entry.as_int;
 }
 
+uint64_t SOCKETS::to_uint64(PIPE::ENTRY entry) const noexcept {
+    if (entry.type != PIPE::TYPE::UINT64) die();
+
+    return entry.as_uint64;
+}
+
 uint8_t *SOCKETS::to_uint8(PIPE &pipe) const noexcept {
     if (pipe.type != PIPE::TYPE::UINT8) die();
 
@@ -2809,8 +2819,8 @@ SOCKETS::INDEX::ENTRY SOCKETS::find(
 
     if (index.buckets <= 0) die();
 
-    const INDEX::TABLE &table = index.table[key % index.buckets];
-    const PIPE &key_pipe = table.key;
+    INDEX::TABLE &table = index.table[key % index.buckets];
+    PIPE &key_pipe = table.key;
 
     if (key_pipe.type != PIPE::TYPE::UINT64) {
         die(); // The only valid key type is uint64_t.
@@ -2822,7 +2832,7 @@ SOCKETS::INDEX::ENTRY SOCKETS::find(
         return {};
     }
 
-    const PIPE &value_pipe = table.value;
+    PIPE &value_pipe = table.value;
 
     if (value.type != PIPE::TYPE::NONE && value.type != value_pipe.type) {
         die();
@@ -3089,25 +3099,14 @@ size_t SOCKETS::count(INDEX::TYPE index_type, uint64_t key) const noexcept {
     return count;
 }
 
-SOCKETS::ERROR SOCKETS::insert(
+void SOCKETS::replace(
     PIPE &pipe, size_t index, PIPE::ENTRY value
 ) noexcept {
-    if (index > pipe.size) {
+    if (index >= pipe.size) {
         die();
     }
     else if (pipe.type != value.type) {
         die();
-    }
-    else if (index == pipe.size) {
-        if (pipe.size == pipe.capacity) {
-            ERROR error = reserve(pipe, std::max(pipe.size * 2, size_t{1}));
-
-            if (error != ERROR::NONE) {
-                return error;
-            }
-        }
-
-        ++pipe.size;
     }
 
     switch (pipe.type) {
@@ -3132,8 +3131,32 @@ SOCKETS::ERROR SOCKETS::insert(
             ((MEMORY *) pipe.data)[index] = value.as_memory;
             break;
         }
-        case PIPE::TYPE::NONE: return die();
+        case PIPE::TYPE::NONE: die();
     }
+}
+
+SOCKETS::ERROR SOCKETS::insert(
+    PIPE &pipe, size_t index, PIPE::ENTRY value
+) noexcept {
+    if (index > pipe.size) {
+        die();
+    }
+    else if (pipe.type != value.type) {
+        die();
+    }
+    else if (index == pipe.size) {
+        if (pipe.size == pipe.capacity) {
+            ERROR error = reserve(pipe, std::max(pipe.size * 2, size_t{1}));
+
+            if (error != ERROR::NONE) {
+                return error;
+            }
+        }
+
+        ++pipe.size;
+    }
+
+    replace(pipe, index, value);
 
     return ERROR::NONE;
 }
@@ -3454,6 +3477,16 @@ SOCKETS::PIPE::ENTRY SOCKETS::get_entry(
     return entry;
 }
 
+void SOCKETS::set_value(
+    INDEX::ENTRY index_entry, PIPE::ENTRY pipe_entry
+) noexcept {
+    replace(*index_entry.val_pipe, index_entry.index, pipe_entry);
+}
+
+SOCKETS::PIPE::ENTRY SOCKETS::get_value(INDEX::ENTRY entry) const noexcept {
+    return get_entry(*entry.val_pipe, entry.index);
+}
+
 void SOCKETS::destroy(PIPE &pipe) noexcept {
     switch (pipe.type) {
         case PIPE::TYPE::UINT8: {
@@ -3547,7 +3580,7 @@ void SOCKETS::deallocate(const void *resource) noexcept {
             return;
         }
 
-        mempool_index = ((uint64_t *) entry.val_pipe->data)[entry.index];
+        mempool_index = to_uint64(get_value(entry));
     }
 
     MEMORY memory = ((MEMORY *) mempool.data)[mempool_index];
@@ -3573,8 +3606,7 @@ void SOCKETS::deallocate(const void *resource) noexcept {
             return;
         }
 
-        // TODO: call insert or implement "replace" method instead of this hack:
-        ((uint64_t *) entry.val_pipe->data)[entry.index] = mempool_index;
+        set_value(entry, make_pipe_entry(mempool_index));
     }
 }
 
@@ -3642,7 +3674,7 @@ constexpr SOCKETS::EVENT SOCKETS::make_event(
 }
 
 constexpr struct SOCKETS::INDEX::ENTRY SOCKETS::make_index_entry(
-    const PIPE &keys, const PIPE &values, size_t index, ERROR error, bool valid
+    PIPE &keys, PIPE &values, size_t index, ERROR error, bool valid
 ) noexcept {
     return
 #if __cplusplus <= 201703L
@@ -3658,7 +3690,7 @@ constexpr struct SOCKETS::INDEX::ENTRY SOCKETS::make_index_entry(
 }
 
 constexpr struct SOCKETS::INDEX::ENTRY SOCKETS::make_index_entry(
-    const PIPE &keys, const PIPE &values, size_t index, ERROR error
+    PIPE &keys, PIPE &values, size_t index, ERROR error
 ) noexcept {
     return make_index_entry(keys, values, index, error, error == ERROR::NONE);
 }
