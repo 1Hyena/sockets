@@ -307,7 +307,7 @@ class SOCKETS final {
     size_t close_and_deinit(int descriptor) noexcept;
 
     [[nodiscard]] ERROR push(const jack_type jack) noexcept; // TODO: remove
-    jack_type pop(int descriptor) noexcept; // TODO: remove
+    void pop(int descriptor) noexcept; // TODO: remove
 
     const jack_type *find_jack(int descriptor) const noexcept;
     jack_type *find_jack(int descriptor) noexcept;
@@ -2306,12 +2306,10 @@ size_t SOCKETS::close_and_deinit(int descriptor) noexcept {
     else {
         ++closed;
 
-        jack_type jack{pop(descriptor)};
-        bool found = jack.descriptor != NO_DESCRIPTOR;
-
+        const jack_type *found = find_jack(descriptor);
         int close_children_of = NO_DESCRIPTOR;
 
-        if (jack.parent == NO_DESCRIPTOR) {
+        if (found->parent == NO_DESCRIPTOR) {
             close_children_of = descriptor;
         }
 
@@ -2321,6 +2319,7 @@ size_t SOCKETS::close_and_deinit(int descriptor) noexcept {
                 descriptor, __FILE__, __LINE__
             );
         }
+        else pop(descriptor);
 
         if (close_children_of != NO_DESCRIPTOR) {
             static constexpr const size_t descriptor_buffer_length = 1024;
@@ -2373,14 +2372,15 @@ size_t SOCKETS::close_and_deinit(int descriptor) noexcept {
                         );
                     }
                     else {
-                        jack = pop(d);
+                        found = find_jack(d);
 
-                        if (jack.descriptor == NO_DESCRIPTOR) {
+                        if (!found) {
                             log(
                                 "descriptor %d closed but jack not found "
                                 "(%s:%d)", d, __FILE__, __LINE__
                             );
                         }
+                        else pop(d);
 
                         ++closed;
                     }
@@ -2447,16 +2447,14 @@ SOCKETS::ERROR SOCKETS::push(const jack_type jack) noexcept {
     return set_group(descriptor, group);
 }
 
-SOCKETS::jack_type SOCKETS::pop(int descriptor) noexcept {
+void SOCKETS::pop(int descriptor) noexcept {
     if (descriptor == NO_DESCRIPTOR) {
-        return make_jack(NO_DESCRIPTOR, NO_DESCRIPTOR, 0);
+        return;
     }
 
     jack_type *jack = find_jack(descriptor);
 
     if (jack) {
-        int parent_descriptor = jack->parent;
-
         // First, let's free the flags.
         for (auto &flag : jack->flags) {
             rem_flag(
@@ -2488,11 +2486,7 @@ SOCKETS::jack_type SOCKETS::pop(int descriptor) noexcept {
         if (!erased) die();
 
         deallocate(jack); // TODO: recycle instead
-
-        return make_jack(descriptor, parent_descriptor, 0);
     }
-
-    return make_jack(NO_DESCRIPTOR, NO_DESCRIPTOR, 0);
 }
 
 const SOCKETS::jack_type *SOCKETS::find_jack(
