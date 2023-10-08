@@ -24,7 +24,7 @@ int main(int argc, char **argv) {
         timeout_milliseconds, timeout_milliseconds == 1 ? "" : "s"
     );
 
-    sockets.serve(timeout_milliseconds);
+    sockets.next_error(timeout_milliseconds);
 
     printf("%s\n", "Deinitializing networking.");
     sockets.deinit();

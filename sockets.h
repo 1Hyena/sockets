@@ -90,10 +90,11 @@ class SOCKETS final {
         const char *port, int family =AF_UNSPEC, int flags =AI_PASSIVE
     ) noexcept;
     bool connect(const char *host, const char *port, int group =0) noexcept;
-    ERROR serve(int timeout =-1) noexcept;
     bool idle() const noexcept;
 
-    struct EVENT next_event() noexcept;
+    ERROR next_error(int timeout =-1) noexcept;
+    ERROR last_error() noexcept;
+    EVENT next_event() noexcept;
 
     size_t incoming(int descriptor) const noexcept;
     size_t outgoing(int descriptor) const noexcept;
@@ -387,11 +388,14 @@ class SOCKETS final {
         const char *file =__builtin_FILE(), int line =__builtin_LINE()
     ) const noexcept;
 
+    ERROR err(ERROR) noexcept;
+
     void (*log_callback)(const char *text) noexcept;
     INDEX indices[static_cast<size_t>(INDEX::TYPE::MAX_TYPES)];
     PIPE  buffers[static_cast<size_t>(BUFFER::MAX_BUFFERS)];
     PIPE  mempool;
     FLAG  serving;
+    ERROR errored;
 
     struct bitset_type {
         bool out_of_memory:1;
@@ -403,9 +407,13 @@ class SOCKETS final {
     sigset_t sigset_orig;
 };
 
+bool operator!(SOCKETS::ERROR error) {
+    return error == static_cast<SOCKETS::ERROR>(0);
+}
+
 SOCKETS::SOCKETS() noexcept :
     log_callback(nullptr), indices{}, buffers{}, mempool{}, serving{},
-    bitset{} {
+    errored{}, bitset{} {
 }
 
 SOCKETS::~SOCKETS() {
@@ -417,10 +425,13 @@ SOCKETS::~SOCKETS() {
         log(
             "%s\n", "destroying instance without having it deinitialized first"
         );
+
+        break;
     }
 }
 
 void SOCKETS::clear() noexcept {
+    errored = ERROR::NONE;
     serving = FLAG::NONE;
 
     while (mempool.size) {
@@ -806,10 +817,18 @@ void SOCKETS::disconnect(int descriptor) noexcept {
     terminate(descriptor);
 }
 
-SOCKETS::ERROR SOCKETS::serve(int timeout) noexcept {
+SOCKETS::ERROR SOCKETS::err(ERROR e) noexcept {
+    return (errored = e);
+}
+
+SOCKETS::ERROR SOCKETS::last_error() noexcept {
+    return errored;
+}
+
+SOCKETS::ERROR SOCKETS::next_error(int timeout) noexcept {
     if (bitset.out_of_memory) {
         bitset.out_of_memory = false;
-        return ERROR::OUT_OF_MEMORY;
+        return err(ERROR::OUT_OF_MEMORY);
     }
 
     if (find_jack(FLAG::NEW_CONNECTION)) {
@@ -818,10 +837,10 @@ SOCKETS::ERROR SOCKETS::serve(int timeout) noexcept {
 
         if (!bitset.unhandled_events) {
             bitset.unhandled_events = true;
-            return ERROR::NONE;
+            return err(ERROR::NONE);
         }
 
-        return ERROR::UNHANDLED_EVENTS;
+        return err(ERROR::UNHANDLED_EVENTS);
     }
 
     PIPE &descriptor_buffer = get_buffer(BUFFER::SERVE);
@@ -860,7 +879,7 @@ SOCKETS::ERROR SOCKETS::serve(int timeout) noexcept {
         );
 
         if (error != ERROR::NONE) {
-            return error;
+            return err(error);
         }
 
         for (size_t j=0, sz=descriptor_buffer.size; j<sz; ++j) {
@@ -942,11 +961,11 @@ SOCKETS::ERROR SOCKETS::serve(int timeout) noexcept {
                 continue;
             }
 
-            return error;
+            return err(error);
         }
     }
 
-    return ERROR::NONE;
+    return err(ERROR::NONE);
 }
 
 size_t SOCKETS::incoming(int descriptor) const noexcept {

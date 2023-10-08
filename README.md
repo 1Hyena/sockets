@@ -44,7 +44,7 @@ using the SOCKETS library.
 ```C++
 sockets.listen("4000");
 
-while (sockets.serve()) {
+while (!sockets.next_error()) {
     SOCKETS::EVENT ev{ sockets.next_event() };
 
     if (ev.type == SOCKETS::EV_CONNECTION) {
@@ -64,7 +64,7 @@ the following code snippet.
 ```C++
 sockets.connect("localhost", "4000");
 
-while (sockets.serve()) {
+while (!sockets.next_error()) {
     SOCKETS::EVENT ev{ sockets.next_event() };
 
     if (ev.type == SOCKETS::EV_CONNECTION) {
@@ -93,10 +93,10 @@ examples.
   on port 4000 and sends them some text message upon a successful connection.
 
 * [ex_sleep](examples/src/ex_sleep.cpp) —
-  The _SOCKETS::serve_ method can take an argument specifying the maximum number
-  of milliseconds to wait for networking events. This feature can be used to
-  simulate a sleeping routine where the program stops using any processing power
-  for a given amount of time.
+  The _SOCKETS::next_error_ method can take an argument specifying the maximum
+  number of milliseconds to wait for networking events. This feature can be used
+  to simulate a sleeping routine where the program stops using any processing
+  power for a given amount of time.
 
 * [ex_signal](examples/src/ex_signal.cpp) —
   Since this library is inherently single-threaded, it is trivial to use it in

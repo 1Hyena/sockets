@@ -30,7 +30,7 @@ int main(int argc, char **argv) {
 
     SOCKETS::ERROR error;
 
-    if ((error = sockets.serve()) != SOCKETS::ERR_NONE) {
+    if ((error = sockets.next_error()) != SOCKETS::ERR_NONE) {
         printf("Error serving the sockets (%s).\n", sockets.get_code(error));
     }
 

@@ -26,12 +26,11 @@ int main(int argc, char **argv) {
     if (sockets.connect(SERVER_HOST, SERVER_PORT)) {
         constexpr int timeout_ms = 3000;
         bool connected = false;
-        SOCKETS::ERROR error;
         SOCKETS::EVENT ev;
 
         printf("%s\n", "Waiting for socket events.");
 
-        while ((error = sockets.serve(timeout_ms)) == SOCKETS::ERR_NONE) {
+        while (!sockets.next_error(timeout_ms)) {
             if (sockets.idle()) {
                 printf(
                     "Nothing happened in the last %d seconds.\n",
@@ -86,9 +85,10 @@ int main(int argc, char **argv) {
             if (ev.type == SOCKETS::EV_DISCONNECTION) break;
         }
 
-        if (error != SOCKETS::ERR_NONE) {
+        if (sockets.last_error() != SOCKETS::ERR_NONE) {
             printf(
-                "Error serving the sockets (%s).\n", sockets.get_code(error)
+                "Error serving the sockets (%s).\n",
+                sockets.get_code(sockets.last_error())
             );
 
             goto TheEnd;
