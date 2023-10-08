@@ -307,7 +307,7 @@ class SOCKETS final {
     size_t close_and_deinit(int descriptor) noexcept;
 
     [[nodiscard]] ERROR push(const jack_type jack) noexcept; // TODO: remove
-    void pop(int descriptor) noexcept; // TODO: remove
+    void destroy(jack_type *) noexcept;
 
     const jack_type *find_jack(int descriptor) const noexcept;
     jack_type *find_jack(int descriptor) noexcept;
@@ -641,17 +641,17 @@ bool SOCKETS::deinit() noexcept {
 
     for (size_t bucket=0; bucket<descriptor_jack.buckets; ++bucket) {
         while (descriptor_jack.table[bucket].key.size) {
-            int descriptor{
+            jack_type *jack{
                 to_jack(
                     get_last(descriptor_jack.table[bucket].value)
-                )->descriptor
+                )
             };
 
-            if (!close_and_deinit(descriptor)) {
+            if (!close_and_deinit(jack->descriptor)) {
                 // If for some reason we couldn't close the descriptor,
                 // we still need to deallocate the related memmory.
 
-                pop(descriptor);
+                destroy(jack);
                 success = false;
             }
         }
@@ -1224,31 +1224,31 @@ void SOCKETS::out_of_memory(const char *file, int line) const noexcept {
 }
 
 SOCKETS::ERROR SOCKETS::handle_close(int descriptor) noexcept {
-    if (has_flag(descriptor, FLAG::RECONNECT)) {
-        jack_type &rec = get_jack(descriptor);
+    jack_type &jack = get_jack(descriptor);
 
+    if (has_flag(descriptor, FLAG::RECONNECT)) {
         int new_descriptor = connect(
             get_host(descriptor), get_port(descriptor),
-            get_group(descriptor), rec.ai_family, rec.ai_flags, rec.blacklist
+            get_group(descriptor), jack.ai_family, jack.ai_flags, jack.blacklist
         );
 
         if (new_descriptor == NO_DESCRIPTOR) {
             rem_flag(descriptor, FLAG::RECONNECT);
         }
         else {
-            jack_type &new_rec = get_jack(new_descriptor);
+            jack_type &new_jack = get_jack(new_descriptor);
 
-            struct addrinfo *blacklist = new_rec.blacklist;
+            struct addrinfo *blacklist = new_jack.blacklist;
 
             if (!blacklist) {
-                blacklist = rec.blacklist;
-                rec.blacklist = nullptr;
+                blacklist = jack.blacklist;
+                jack.blacklist = nullptr;
             }
             else {
                 for (;; blacklist = blacklist->ai_next) {
                     if (blacklist->ai_next == nullptr) {
-                        blacklist->ai_next = rec.blacklist;
-                        rec.blacklist = nullptr;
+                        blacklist->ai_next = jack.blacklist;
+                        jack.blacklist = nullptr;
                         break;
                     }
                 }
@@ -1270,7 +1270,7 @@ SOCKETS::ERROR SOCKETS::handle_close(int descriptor) noexcept {
     }
 
     if (!close_and_deinit(descriptor)) {
-        pop(descriptor);
+        destroy(&jack);
         return ERROR::FORBIDDEN_CONDITION;
     }
 
@@ -1662,7 +1662,7 @@ SOCKETS::ERROR SOCKETS::handle_accept(int descriptor) noexcept {
         // Something has gone terribly wrong.
 
         if (!close_and_deinit(descriptor)) {
-            pop(descriptor);
+            destroy(find_jack(descriptor));
         }
 
         return ERROR::FORBIDDEN_CONDITION;
@@ -1672,7 +1672,7 @@ SOCKETS::ERROR SOCKETS::handle_accept(int descriptor) noexcept {
 
     if (error != ERROR::NONE) {
         if (!close_and_deinit(client_descriptor)) {
-            pop(client_descriptor);
+            destroy(find_jack(client_descriptor));
         }
 
         return ERROR::FORBIDDEN_CONDITION;
@@ -1724,7 +1724,7 @@ SOCKETS::ERROR SOCKETS::handle_accept(int descriptor) noexcept {
         }
 
         if (!close_and_deinit(client_descriptor)) {
-            pop(client_descriptor);
+            destroy(&client_jack);
         }
     }
     else {
@@ -1757,7 +1757,7 @@ int SOCKETS::connect(
 
     if (set_group(descriptor, group) != ERROR::NONE) {
         if (!close_and_deinit(descriptor)) {
-            pop(descriptor);
+            destroy(find_jack(descriptor));
         }
 
         return NO_DESCRIPTOR;
@@ -1779,7 +1779,7 @@ int SOCKETS::connect(
 
     if (!bind_to_epoll(descriptor, epoll_descriptor)) {
         if (!close_and_deinit(descriptor)) {
-            pop(descriptor);
+            destroy(&jack);
         }
 
         return NO_DESCRIPTOR;
@@ -1885,7 +1885,7 @@ int SOCKETS::listen(
         }
 
         if (!close_and_deinit(descriptor)) {
-            pop(descriptor);
+            destroy(find_jack(descriptor));
         }
 
         return NO_DESCRIPTOR;
@@ -1893,7 +1893,7 @@ int SOCKETS::listen(
 
     if (!bind_to_epoll(descriptor, epoll_descriptor)) {
         if (!close_and_deinit(descriptor)) {
-            pop(descriptor);
+            destroy(find_jack(descriptor));
         }
 
         return NO_DESCRIPTOR;
@@ -1977,7 +1977,7 @@ int SOCKETS::create_epoll() noexcept {
 
     if (error != ERROR::NONE) {
         if (!close_and_deinit(epoll_descriptor)) {
-            pop(epoll_descriptor);
+            destroy(find_jack(epoll_descriptor));
         }
 
         return NO_DESCRIPTOR;
@@ -1991,7 +1991,7 @@ int SOCKETS::create_epoll() noexcept {
         out_of_memory();
 
         if (!close_and_deinit(epoll_descriptor)) {
-            pop(epoll_descriptor);
+            destroy(&jack);
         }
 
         return NO_DESCRIPTOR;
@@ -2240,7 +2240,7 @@ int SOCKETS::open_and_init(
                 __FILE__, __LINE__
             );
 
-            pop(descriptor);
+            destroy(find_jack(descriptor));
         }
 
         descriptor = NO_DESCRIPTOR;
@@ -2306,7 +2306,7 @@ size_t SOCKETS::close_and_deinit(int descriptor) noexcept {
     else {
         ++closed;
 
-        const jack_type *found = find_jack(descriptor);
+        jack_type *found = find_jack(descriptor);
         int close_children_of = NO_DESCRIPTOR;
 
         if (found->parent == NO_DESCRIPTOR) {
@@ -2319,7 +2319,7 @@ size_t SOCKETS::close_and_deinit(int descriptor) noexcept {
                 descriptor, __FILE__, __LINE__
             );
         }
-        else pop(descriptor);
+        else destroy(found);
 
         if (close_children_of != NO_DESCRIPTOR) {
             static constexpr const size_t descriptor_buffer_length = 1024;
@@ -2380,7 +2380,7 @@ size_t SOCKETS::close_and_deinit(int descriptor) noexcept {
                                 "(%s:%d)", d, __FILE__, __LINE__
                             );
                         }
-                        else pop(d);
+                        else destroy(found);
 
                         ++closed;
                     }
@@ -2447,46 +2447,43 @@ SOCKETS::ERROR SOCKETS::push(const jack_type jack) noexcept {
     return set_group(descriptor, group);
 }
 
-void SOCKETS::pop(int descriptor) noexcept {
-    if (descriptor == NO_DESCRIPTOR) {
-        return;
+void SOCKETS::destroy(jack_type *jack) noexcept {
+    if (!jack) {
+        return bug();
     }
 
-    jack_type *jack = find_jack(descriptor);
-
-    if (jack) {
-        // First, let's free the flags.
-        for (auto &flag : jack->flags) {
-            rem_flag(
-                jack->descriptor, static_cast<FLAG>(&flag - &(jack->flags[0]))
-            );
-        }
-
-        // Then, we free the dynamically allocated memory.
-        if (jack->events) {
-            delete [] jack->events;
-        }
-
-        destroy(jack->incoming);
-        destroy(jack->outgoing);
-
-        if (jack->blacklist) {
-            freeaddrinfo(jack->blacklist);
-        }
-
-        rem_group(descriptor);
-
-        // Finally, we remove the jack.
-        size_t erased{
-            erase(
-                INDEX::TYPE::DESCRIPTOR_JACK, static_cast<uint64_t>(descriptor)
-            )
-        };
-
-        if (!erased) die();
-
-        deallocate(jack); // TODO: recycle instead
+    // First, let's free the flags.
+    for (auto &flag : jack->flags) {
+        rem_flag(
+            jack->descriptor, static_cast<FLAG>(&flag - &(jack->flags[0]))
+        );
     }
+
+    // Then, we free the dynamically allocated memory.
+    if (jack->events) {
+        delete [] jack->events;
+    }
+
+    destroy(jack->incoming);
+    destroy(jack->outgoing);
+
+    if (jack->blacklist) {
+        freeaddrinfo(jack->blacklist);
+    }
+
+    rem_group(jack->descriptor);
+
+    // Finally, we remove the jack.
+    size_t erased{
+        erase(
+            INDEX::TYPE::DESCRIPTOR_JACK,
+            static_cast<uint64_t>(jack->descriptor)
+        )
+    };
+
+    if (!erased) die();
+
+    deallocate(jack); // TODO: recycle instead
 }
 
 const SOCKETS::jack_type *SOCKETS::find_jack(
