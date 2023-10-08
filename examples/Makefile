@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 CC      = g++
-PROF    = -O3
+PROF    = -O0 -g -rdynamic
 C_FLAGS = -std=c++17 -Wall -Wextra -pedantic-errors -Wconversion \
           -Wno-unused-parameter -fmax-errors=5 -fno-exceptions
 L_FLAGS = -lm -lstdc++

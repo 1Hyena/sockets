@@ -28,8 +28,10 @@ int main(int argc, char **argv) {
 
     printf("%s\n", "Sleeping indefinitely.");
 
-    if (!sockets.serve()) {
-        printf("%s\n", "Error serving the sockets.");
+    SOCKETS::ERROR error;
+
+    if ((error = sockets.serve()) != SOCKETS::ERR_NONE) {
+        printf("Error serving the sockets (%s).\n", sockets.get_code(error));
     }
 
     printf("%s\n", "Deinitializing networking.");
