@@ -143,7 +143,8 @@ class SOCKETS final {
     enum class BUFFER : uint8_t {
         GENERIC_INT,
         GENERIC_BYTE,
-        SERVE,
+        NEXT_ERROR,
+        READ,
         WRITEF,
         HANDLE_READ,
         // Do not change the order of items below this line.
@@ -576,7 +577,7 @@ bool SOCKETS::init() noexcept {
 
     for (PIPE &pipe : buffers) {
         switch (static_cast<BUFFER>(&pipe - &buffers[0])) {
-            case BUFFER::SERVE:
+            case BUFFER::NEXT_ERROR:
             case BUFFER::GENERIC_INT: {
                 pipe.type = PIPE::TYPE::INT;
                 break;
@@ -586,6 +587,7 @@ bool SOCKETS::init() noexcept {
                 pipe.type = PIPE::TYPE::UINT8;
                 break;
             }
+            case BUFFER::READ:
             case BUFFER::HANDLE_READ: {
                 static constexpr const size_t buffer_length{
                     1024 // TODO: make it possible to configure this
@@ -840,7 +842,7 @@ SOCKETS::ERROR SOCKETS::next_error(int timeout) noexcept {
         return err(ERROR::UNHANDLED_EVENTS);
     }
 
-    PIPE &descriptor_buffer = get_buffer(BUFFER::SERVE);
+    PIPE &descriptor_buffer = get_buffer(BUFFER::NEXT_ERROR);
 
     if (serving == FLAG::NONE) {
         bitset.timeout = false;
@@ -869,12 +871,7 @@ SOCKETS::ERROR SOCKETS::next_error(int timeout) noexcept {
 
         if (!flagged_descriptors) continue;
 
-        ERROR error = copy(
-            // TODO: if it is possible for descriptors to be closed and reused
-            // during a single iteration cycle, then bad things would happen.
-            // check if this is a case here and implement a fix if necessary.
-            *flagged_descriptors, descriptor_buffer
-        );
+        ERROR error = copy(*flagged_descriptors, descriptor_buffer);
 
         if (error != ERROR::NONE) {
             return err(error);
@@ -1024,17 +1021,23 @@ const char *SOCKETS::read(int descriptor) noexcept {
         return "";
     }
 
-    PIPE &buffer = get_buffer(BUFFER::GENERIC_BYTE);
+    PIPE &buffer = get_buffer(BUFFER::READ);
 
-    if (copy(jack->incoming, buffer) != ERROR::NONE
-    ||  insert(buffer, make_pipe_entry(buffer.type)) != ERROR::NONE) {
-        // TODO: implement better out-of-memory error handling (read partially).
+    if (buffer.capacity <= 1) {
         return "";
     }
 
-    jack->incoming.size = 0;
+    size_t count{
+        read(
+            descriptor, to_uint8(buffer),
+            std::min(buffer.capacity - 1, jack->incoming.size)
+        )
+    };
 
-    return (const char *) buffer.data;
+    to_uint8(buffer)[count] = '\0';
+    buffer.size = count + 1;
+
+    return reinterpret_cast<const char *>(to_uint8(buffer));
 }
 
 SOCKETS::ERROR SOCKETS::write(
