@@ -306,8 +306,8 @@ class SOCKETS final {
 
     size_t close_and_deinit(int descriptor) noexcept;
 
-    [[nodiscard]] ERROR push(const jack_type jack) noexcept; // TODO: remove
-    void destroy(jack_type *) noexcept;
+    [[nodiscard]] ERROR capture(const jack_type &copy) noexcept;
+    void release(jack_type *) noexcept;
 
     const jack_type *find_jack(int descriptor) const noexcept;
     jack_type *find_jack(int descriptor) noexcept;
@@ -651,7 +651,7 @@ bool SOCKETS::deinit() noexcept {
                 // If for some reason we couldn't close the descriptor,
                 // we still need to deallocate the related memmory.
 
-                destroy(jack);
+                release(jack);
                 success = false;
             }
         }
@@ -1270,7 +1270,7 @@ SOCKETS::ERROR SOCKETS::handle_close(int descriptor) noexcept {
     }
 
     if (!close_and_deinit(descriptor)) {
-        destroy(&jack);
+        release(&jack);
         return ERROR::FORBIDDEN_CONDITION;
     }
 
@@ -1662,17 +1662,17 @@ SOCKETS::ERROR SOCKETS::handle_accept(int descriptor) noexcept {
         // Something has gone terribly wrong.
 
         if (!close_and_deinit(descriptor)) {
-            destroy(find_jack(descriptor));
+            release(find_jack(descriptor));
         }
 
         return ERROR::FORBIDDEN_CONDITION;
     }
 
-    ERROR error{push(make_jack(client_descriptor, descriptor, 0))};
+    ERROR error{capture(make_jack(client_descriptor, descriptor, 0))};
 
     if (error != ERROR::NONE) {
         if (!close_and_deinit(client_descriptor)) {
-            destroy(find_jack(client_descriptor));
+            release(find_jack(client_descriptor));
         }
 
         return ERROR::FORBIDDEN_CONDITION;
@@ -1724,7 +1724,7 @@ SOCKETS::ERROR SOCKETS::handle_accept(int descriptor) noexcept {
         }
 
         if (!close_and_deinit(client_descriptor)) {
-            destroy(&client_jack);
+            release(&client_jack);
         }
     }
     else {
@@ -1757,7 +1757,7 @@ int SOCKETS::connect(
 
     if (set_group(descriptor, group) != ERROR::NONE) {
         if (!close_and_deinit(descriptor)) {
-            destroy(find_jack(descriptor));
+            release(find_jack(descriptor));
         }
 
         return NO_DESCRIPTOR;
@@ -1779,7 +1779,7 @@ int SOCKETS::connect(
 
     if (!bind_to_epoll(descriptor, epoll_descriptor)) {
         if (!close_and_deinit(descriptor)) {
-            destroy(&jack);
+            release(&jack);
         }
 
         return NO_DESCRIPTOR;
@@ -1885,7 +1885,7 @@ int SOCKETS::listen(
         }
 
         if (!close_and_deinit(descriptor)) {
-            destroy(find_jack(descriptor));
+            release(find_jack(descriptor));
         }
 
         return NO_DESCRIPTOR;
@@ -1893,7 +1893,7 @@ int SOCKETS::listen(
 
     if (!bind_to_epoll(descriptor, epoll_descriptor)) {
         if (!close_and_deinit(descriptor)) {
-            destroy(find_jack(descriptor));
+            release(find_jack(descriptor));
         }
 
         return NO_DESCRIPTOR;
@@ -1973,11 +1973,11 @@ int SOCKETS::create_epoll() noexcept {
         return NO_DESCRIPTOR;
     }
 
-    ERROR error{push(make_jack(epoll_descriptor, NO_DESCRIPTOR, 0))};
+    ERROR error{capture(make_jack(epoll_descriptor, NO_DESCRIPTOR, 0))};
 
     if (error != ERROR::NONE) {
         if (!close_and_deinit(epoll_descriptor)) {
-            destroy(find_jack(epoll_descriptor));
+            release(find_jack(epoll_descriptor));
         }
 
         return NO_DESCRIPTOR;
@@ -1991,7 +1991,7 @@ int SOCKETS::create_epoll() noexcept {
         out_of_memory();
 
         if (!close_and_deinit(epoll_descriptor)) {
-            destroy(&jack);
+            release(&jack);
         }
 
         return NO_DESCRIPTOR;
@@ -2102,7 +2102,7 @@ int SOCKETS::open_and_init(
 
         jack_type *rec = nullptr;
 
-        ERROR error{push(make_jack(descriptor, NO_DESCRIPTOR, 0))};
+        ERROR error{capture(make_jack(descriptor, NO_DESCRIPTOR, 0))};
 
         if (error == ERROR::NONE) {
             rec = &get_jack(descriptor);
@@ -2240,7 +2240,7 @@ int SOCKETS::open_and_init(
                 __FILE__, __LINE__
             );
 
-            destroy(find_jack(descriptor));
+            release(find_jack(descriptor));
         }
 
         descriptor = NO_DESCRIPTOR;
@@ -2319,7 +2319,7 @@ size_t SOCKETS::close_and_deinit(int descriptor) noexcept {
                 descriptor, __FILE__, __LINE__
             );
         }
-        else destroy(found);
+        else release(found);
 
         if (close_children_of != NO_DESCRIPTOR) {
             static constexpr const size_t descriptor_buffer_length = 1024;
@@ -2380,7 +2380,7 @@ size_t SOCKETS::close_and_deinit(int descriptor) noexcept {
                                 "(%s:%d)", d, __FILE__, __LINE__
                             );
                         }
-                        else destroy(found);
+                        else release(found);
 
                         ++closed;
                     }
@@ -2410,29 +2410,29 @@ size_t SOCKETS::close_and_deinit(int descriptor) noexcept {
     return closed;
 }
 
-SOCKETS::ERROR SOCKETS::push(const jack_type jack) noexcept {
-    if (jack.descriptor == NO_DESCRIPTOR) {
+SOCKETS::ERROR SOCKETS::capture(const jack_type &copy) noexcept {
+    if (copy.descriptor == NO_DESCRIPTOR) {
         die();
     }
 
-    int descriptor = jack.descriptor;
-    int group = jack.group;
+    int descriptor = copy.descriptor;
+    int group = copy.group;
 
-    jack_type *jack_ptr = new_jack(&jack);
+    jack_type *jack = new_jack(&copy);
 
-    if (!jack_ptr) {
+    if (!jack) {
         return ERROR::OUT_OF_MEMORY;
     }
 
     INDEX::ENTRY entry{
         insert(
             INDEX::TYPE::DESCRIPTOR_JACK,
-            static_cast<uint64_t>(descriptor), make_pipe_entry(jack_ptr)
+            static_cast<uint64_t>(descriptor), make_pipe_entry(jack)
         )
     };
 
     if (!entry.valid) {
-        deallocate(jack_ptr);
+        deallocate(jack);
 
         return entry.error;
     }
@@ -2441,13 +2441,13 @@ SOCKETS::ERROR SOCKETS::push(const jack_type jack) noexcept {
         // If the newly pushed jack has not its group set to zero at first, then
         // set_group would falsely reduce the group size.
 
-        jack_ptr->group = 0;
+        jack->group = 0;
     }
 
     return set_group(descriptor, group);
 }
 
-void SOCKETS::destroy(jack_type *jack) noexcept {
+void SOCKETS::release(jack_type *jack) noexcept {
     if (!jack) {
         return bug();
     }
