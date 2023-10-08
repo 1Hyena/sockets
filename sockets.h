@@ -407,7 +407,7 @@ class SOCKETS final {
     sigset_t sigset_orig;
 };
 
-bool operator!(SOCKETS::ERROR error) {
+bool operator!(SOCKETS::ERROR error) noexcept {
     return error == static_cast<SOCKETS::ERROR>(0);
 }
 
