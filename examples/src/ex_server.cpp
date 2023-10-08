@@ -109,7 +109,7 @@ static void handle(SOCKETS &sockets) {
                     buffer.size(), buffer.size() == 1 ? "" : "s", d
                 );
 
-                sockets.append_outgoing(d, buffer.data(), buffer.size());
+                sockets.write(d, buffer.data(), buffer.size());
 
                 buffer.clear();
 

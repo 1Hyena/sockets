@@ -96,16 +96,14 @@ class SOCKETS final {
     struct EVENT next_event() noexcept;
 
     const char *read(int descriptor) noexcept;
-    void write(int descriptor, const char *text) noexcept;
+    ERROR write(int descriptor, const void *buf, size_t count) noexcept;
+    ERROR write(int descriptor, const char *text) noexcept;
     ERROR writef(
         int descriptor, const char *fmt, ...
     ) noexcept __attribute__((format(printf, 3, 4)));
 
     bool swap_incoming(int descriptor, std::vector<uint8_t> &bytes) noexcept;
     bool swap_outgoing(int descriptor, std::vector<uint8_t> &bytes) noexcept;
-    bool append_outgoing(
-        int descriptor, const uint8_t *buffer, size_t size
-    ) noexcept;
 
     [[nodiscard]] bool is_listener(int descriptor) const noexcept;
     [[nodiscard]] bool is_frozen(int descriptor) const noexcept;
@@ -873,30 +871,6 @@ bool SOCKETS::swap_outgoing(
     return false;
 }
 
-bool SOCKETS::append_outgoing(
-    int descriptor, const uint8_t *buffer, size_t size
-) noexcept {
-    jack_type *jack = find_jack(descriptor);
-
-    if (jack) {
-        if (!buffer) die();
-
-        if (size) {
-            const PIPE wrapper{ make_pipe(buffer, size) };
-
-            if (append(wrapper, jack->outgoing) != ERROR::NONE) {
-                return false;
-            }
-
-            set_flag(descriptor, FLAG::WRITE);
-        }
-
-        return true;
-    }
-
-    return false;
-}
-
 SOCKETS::ERROR SOCKETS::serve(int timeout) noexcept {
     if (bitset.out_of_memory) {
         bitset.out_of_memory = false;
@@ -1060,23 +1034,37 @@ const char *SOCKETS::read(int descriptor) noexcept {
     return (const char *) buffer.data;
 }
 
-void SOCKETS::write(int descriptor, const char *text) noexcept {
+SOCKETS::ERROR SOCKETS::write(
+    int descriptor, const void *buf, size_t count
+) noexcept {
     jack_type *jack = find_jack(descriptor);
 
     if (!jack) {
-        return;
+        bug();
+        return ERROR::FORBIDDEN_CONDITION;
     }
 
-    const PIPE wrapper{
-        make_pipe(reinterpret_cast<const uint8_t *>(text), std::strlen(text))
-    };
+    if (!buf) die();
 
-    if (append(wrapper, jack->outgoing) != ERROR::NONE) {
-        // TODO: return error
-        return;
+    if (count) {
+        const PIPE wrapper{
+            make_pipe(reinterpret_cast<const uint8_t *>(buf), count)
+        };
+
+        ERROR error{ append(wrapper, jack->outgoing) };
+
+        if (error != ERROR::NONE) {
+            return error;
+        }
+
+        set_flag(descriptor, FLAG::WRITE, jack->outgoing.size);
     }
 
-    set_flag(descriptor, FLAG::WRITE, jack->outgoing.size);
+    return ERROR::NONE;
+}
+
+SOCKETS::ERROR SOCKETS::write(int descriptor, const char *text) noexcept {
+    return write(descriptor, text, std::strlen(text));
 }
 
 SOCKETS::ERROR SOCKETS::writef(int descriptor, const char *fmt, ...) noexcept {
