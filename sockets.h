@@ -122,34 +122,33 @@ class SOCKETS final {
     static constexpr const int EPOLL_MAX_EVENTS  = 64;
 
     enum class FLAG : uint8_t {
-        NONE           =  0,
-        TIMEOUT        =  1, // TODO: remove and implement with bitset instead
+        NONE = 0,
         // Do not change the order of the flags above this line.
-        RECONNECT      =  2,
-        READ           =  3,
-        WRITE          =  4,
-        ACCEPT         =  5,
-        NEW_CONNECTION =  6,
-        DISCONNECT     =  7,
-        CLOSE          =  8,
-        INCOMING       =  9,
-        MAY_SHUTDOWN   = 10,
-        LISTENER       = 11,
-        CONNECTING     = 12,
+        RECONNECT,
+        READ,
+        WRITE,
+        ACCEPT,
+        NEW_CONNECTION,
+        DISCONNECT,
+        CLOSE,
+        INCOMING,
+        MAY_SHUTDOWN,
+        LISTENER,
+        CONNECTING,
         // Do not change the order of the flags below this line.
-        EPOLL          = 14,
-        MAX_FLAGS      = 15
+        EPOLL,
+        MAX_FLAGS
     };
 
     enum class BUFFER : uint8_t {
-        GENERIC_INT  = 0,
-        GENERIC_BYTE = 1,
-        SERVE        = 2,
-        WRITEF       = 3,
-        HANDLE_READ  = 4,
-        HANDLE_WRITE = 5,
+        GENERIC_INT,
+        GENERIC_BYTE,
+        SERVE,
+        WRITEF,
+        HANDLE_READ,
+        HANDLE_WRITE,
         // Do not change the order of items below this line.
-        MAX_BUFFERS  = 6
+        MAX_BUFFERS
     };
 
     struct MEMORY {
@@ -187,14 +186,14 @@ class SOCKETS final {
 
     struct INDEX {
         enum class TYPE : uint8_t {
-            NONE            = 0,
+            NONE = 0,
             // Do not change the order of the types above this line.
-            GROUP_SIZE      = 1,
-            FLAG_DESCRIPTOR = 2,
-            MEM_ADDR_INDEX  = 3,
-            DESCRIPTOR_JACK = 4,
+            GROUP_SIZE,
+            FLAG_DESCRIPTOR,
+            MEM_ADDR_INDEX,
+            DESCRIPTOR_JACK,
             // Do not change the order of the types below this line.
-            MAX_TYPES       = 5
+            MAX_TYPES
         };
 
         struct ENTRY {
@@ -400,6 +399,7 @@ class SOCKETS final {
     struct bitset_type {
         bool out_of_memory:1;
         bool unhandled_events:1;
+        bool timeout:1;
     } bitset;
 
     sigset_t sigset_all;
@@ -803,8 +803,7 @@ bool SOCKETS::is_frozen(int descriptor) const noexcept {
 }
 
 bool SOCKETS::idle() const noexcept {
-    const jack_type *epoll_jack = find_epoll_jack();
-    return epoll_jack ? has_flag(*epoll_jack, FLAG::TIMEOUT) : false;
+    return bitset.timeout;
 }
 
 bool SOCKETS::connect(const char *host, const char *port, int group) noexcept {
@@ -846,6 +845,7 @@ SOCKETS::ERROR SOCKETS::next_error(int timeout) noexcept {
     PIPE &descriptor_buffer = get_buffer(BUFFER::SERVE);
 
     if (serving == FLAG::NONE) {
+        bitset.timeout = false;
         serving = next(serving);
     }
 
@@ -940,11 +940,6 @@ SOCKETS::ERROR SOCKETS::next_error(int timeout) noexcept {
 
                     error = handle_read(d);
                     break;
-                }
-                case FLAG::TIMEOUT: {
-                    // This temporary flag is removed on each service cycle.
-                    // For that reason it should be handled before others.
-                    continue;
                 }
                 default: {
                     log(
@@ -1340,7 +1335,7 @@ SOCKETS::ERROR SOCKETS::handle_epoll(
         return ERROR::FORBIDDEN_CONDITION;
     }
     else if (pending == 0) {
-        set_flag(epoll_descriptor, FLAG::TIMEOUT);
+        bitset.timeout = true;
     }
 
     for (int i=0; i<pending; ++i) {
