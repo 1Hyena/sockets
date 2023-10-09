@@ -434,6 +434,9 @@ SOCKETS::SOCKETS() noexcept :
 }
 
 SOCKETS::~SOCKETS() {
+    // TODO: check for memory leaks by comparing total number of bytes allocated
+    // to the total number of bytes deallocated
+
     for (INDEX &index : indices) {
         if (index.type == INDEX::TYPE::NONE) {
             continue;
