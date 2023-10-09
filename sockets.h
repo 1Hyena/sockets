@@ -156,6 +156,10 @@ class SOCKETS final {
         uint8_t *data;
     };
 
+    struct KEY {
+        uintptr_t value;
+    };
+
     struct PIPE {
         enum class TYPE : uint8_t {
             NONE = 0,
@@ -164,7 +168,8 @@ class SOCKETS final {
             INT,
             PTR,
             JACK_PTR,
-            MEMORY
+            MEMORY,
+            KEY
         };
 
         struct ENTRY {
@@ -174,6 +179,7 @@ class SOCKETS final {
                 int      as_int;
                 void    *as_ptr;
                 MEMORY   as_memory;
+                KEY      as_key;
             };
             TYPE type;
         };
@@ -231,6 +237,9 @@ class SOCKETS final {
         } bitset;
     };
 
+    inline static constexpr KEY make_key(uintptr_t) noexcept;
+    inline static constexpr KEY make_key(FLAG) noexcept;
+
     inline static constexpr MEMORY make_memory(
         uint8_t *data, size_t size
     ) noexcept;
@@ -261,6 +270,7 @@ class SOCKETS final {
     inline static constexpr PIPE::ENTRY make_pipe_entry(uint64_t   ) noexcept;
     inline static constexpr PIPE::ENTRY make_pipe_entry(int        ) noexcept;
     inline static constexpr PIPE::ENTRY make_pipe_entry(MEMORY     ) noexcept;
+    inline static constexpr PIPE::ENTRY make_pipe_entry(KEY        ) noexcept;
     inline static constexpr PIPE::ENTRY make_pipe_entry(jack_type *) noexcept;
 
     inline static bool is_listed(
@@ -331,19 +341,19 @@ class SOCKETS final {
     bool has_flag(const jack_type &rec, FLAG) const noexcept;
     bool has_flag(int descriptor, FLAG) const noexcept;
 
-    size_t count(INDEX::TYPE, uint64_t key) const noexcept;
+    size_t count(INDEX::TYPE, KEY key) const noexcept;
     INDEX::ENTRY find(
-        INDEX::TYPE, uint64_t key, PIPE::ENTRY value ={},
+        INDEX::TYPE, KEY key, PIPE::ENTRY value ={},
         size_t start_i =std::numeric_limits<size_t>::max(),
         size_t iterations =std::numeric_limits<size_t>::max()
     ) const noexcept;
-    size_t erase( // TODO: use a custom data type to represent key
-        INDEX::TYPE, uint64_t key, PIPE::ENTRY value ={},
+    size_t erase(
+        INDEX::TYPE, KEY key, PIPE::ENTRY value ={},
         size_t start_i =std::numeric_limits<size_t>::max(),
         size_t iterations =std::numeric_limits<size_t>::max()
     ) noexcept;
     [[nodiscard]] INDEX::ENTRY insert(
-        INDEX::TYPE, uint64_t key, PIPE::ENTRY value
+        INDEX::TYPE, KEY key, PIPE::ENTRY value
     ) noexcept;
     void erase(PIPE &pipe, size_t index) noexcept;
     void destroy(PIPE &pipe) noexcept;
@@ -367,7 +377,10 @@ class SOCKETS final {
     int        to_int   (PIPE::ENTRY) const noexcept;
     uint64_t   to_uint64(PIPE::ENTRY) const noexcept;
 
-    uint8_t *to_uint8 (PIPE &) const noexcept;
+    uint8_t  *to_uint8 (const PIPE &) const noexcept;
+    uint64_t *to_uint64(const PIPE &) const noexcept;
+    MEMORY   *to_memory(const PIPE &) const noexcept;
+    KEY      *to_key   (const PIPE &) const noexcept;
 
     const MEMORY *allocate(size_t bytes, const void *copy =nullptr) noexcept;
     void deallocate(const void *) noexcept;
@@ -553,7 +566,7 @@ bool SOCKETS::init() noexcept {
             PIPE &key_pipe = table.key;
             PIPE &val_pipe = table.value;
 
-            key_pipe.type = PIPE::TYPE::UINT64;
+            key_pipe.type = PIPE::TYPE::KEY;
 
             switch (index.type) {
                 case INDEX::TYPE::DESCRIPTOR_JACK: {
@@ -757,10 +770,10 @@ int SOCKETS::get_group(int descriptor) const noexcept {
 }
 
 size_t SOCKETS::get_group_size(int group) const noexcept {
-    INDEX::ENTRY found{find(INDEX::TYPE::GROUP_SIZE, group)};
+    INDEX::ENTRY found{find(INDEX::TYPE::GROUP_SIZE, make_key(group))};
 
     if (found.valid) {
-        return ((uint64_t *) found.val_pipe->data)[found.index];
+        return to_uint64(get_value(found));
     }
 
     return 0;
@@ -2434,7 +2447,7 @@ SOCKETS::ERROR SOCKETS::capture(const jack_type &copy) noexcept {
     INDEX::ENTRY entry{
         insert(
             INDEX::TYPE::DESCRIPTOR_JACK,
-            static_cast<uint64_t>(descriptor), make_pipe_entry(jack)
+            make_key(descriptor), make_pipe_entry(jack)
         )
     };
 
@@ -2482,10 +2495,7 @@ void SOCKETS::release(jack_type *jack) noexcept {
 
     // Finally, we remove the jack.
     size_t erased{
-        erase(
-            INDEX::TYPE::DESCRIPTOR_JACK,
-            static_cast<uint64_t>(jack->descriptor)
-        )
+        erase(INDEX::TYPE::DESCRIPTOR_JACK, make_key(jack->descriptor))
     };
 
     if (!erased) die();
@@ -2497,7 +2507,7 @@ const SOCKETS::jack_type *SOCKETS::find_jack(
     int descriptor
 ) const noexcept {
     INDEX::ENTRY entry{
-        find(INDEX::TYPE::DESCRIPTOR_JACK, static_cast<uint64_t>(descriptor))
+        find(INDEX::TYPE::DESCRIPTOR_JACK, make_key(descriptor))
     };
 
     if (!entry.valid) {
@@ -2515,11 +2525,11 @@ SOCKETS::jack_type *SOCKETS::find_jack(int descriptor) noexcept {
 
 const SOCKETS::jack_type *SOCKETS::find_jack(FLAG flag) const noexcept {
     INDEX::ENTRY entry{
-        find(INDEX::TYPE::FLAG_DESCRIPTOR, static_cast<uint64_t>(flag))
+        find(INDEX::TYPE::FLAG_DESCRIPTOR, make_key(flag))
     };
 
     if (entry.valid) {
-        const int descriptor = ((int *) entry.val_pipe->data)[entry.index];
+        const int descriptor = to_int(get_value(entry));
         return &get_jack(descriptor); // If it's indexed, then it must exist.
     }
 
@@ -2575,9 +2585,7 @@ SOCKETS::jack_type &SOCKETS::get_epoll_jack() noexcept {
 }
 
 const SOCKETS::PIPE *SOCKETS::find_descriptors(FLAG flag) const noexcept {
-    INDEX::ENTRY entry{
-        find(INDEX::TYPE::FLAG_DESCRIPTOR, static_cast<uint64_t>(flag))
-    };
+    INDEX::ENTRY entry{find(INDEX::TYPE::FLAG_DESCRIPTOR, make_key(flag))};
 
     if (entry.valid) {
         return entry.val_pipe;
@@ -2626,10 +2634,28 @@ uint64_t SOCKETS::to_uint64(PIPE::ENTRY entry) const noexcept {
     return entry.as_uint64;
 }
 
-uint8_t *SOCKETS::to_uint8(PIPE &pipe) const noexcept {
+uint8_t *SOCKETS::to_uint8(const PIPE &pipe) const noexcept {
     if (pipe.type != PIPE::TYPE::UINT8) die();
 
     return static_cast<uint8_t *>(pipe.data);
+}
+
+uint64_t *SOCKETS::to_uint64(const PIPE &pipe) const noexcept {
+    if (pipe.type != PIPE::TYPE::UINT64) die();
+
+    return static_cast<uint64_t *>(pipe.data);
+}
+
+SOCKETS::KEY *SOCKETS::to_key(const PIPE &pipe) const noexcept {
+    if (pipe.type != PIPE::TYPE::KEY) die();
+
+    return static_cast<KEY *>(pipe.data);
+}
+
+SOCKETS::MEMORY *SOCKETS::to_memory(const PIPE &pipe) const noexcept {
+    if (pipe.type != PIPE::TYPE::MEMORY) die();
+
+    return static_cast<MEMORY *>(pipe.data);
 }
 
 bool SOCKETS::modify_epoll(int descriptor, uint32_t events) noexcept {
@@ -2668,14 +2694,14 @@ bool SOCKETS::modify_epoll(int descriptor, uint32_t events) noexcept {
 SOCKETS::ERROR SOCKETS::set_group(int descriptor, int group) noexcept {
     jack_type &rec = get_jack(descriptor);
 
-    INDEX::ENTRY found{find(INDEX::TYPE::GROUP_SIZE, rec.group)};
+    INDEX::ENTRY found{find(INDEX::TYPE::GROUP_SIZE, make_key(rec.group))};
 
     if (found.valid) {
         if (found.val_pipe->type == PIPE::TYPE::UINT64) {
-            uint64_t &value = ((uint64_t *) found.val_pipe->data)[found.index];
+            uint64_t &value = to_uint64(*found.val_pipe)[found.index];
 
             if (--value == 0) {
-                erase(INDEX::TYPE::GROUP_SIZE, rec.group);
+                erase(INDEX::TYPE::GROUP_SIZE, make_key(rec.group));
             }
         }
         else die();
@@ -2688,16 +2714,19 @@ SOCKETS::ERROR SOCKETS::set_group(int descriptor, int group) noexcept {
         return ERROR::NONE;
     }
 
-    found = find(INDEX::TYPE::GROUP_SIZE, group);
+    found = find(INDEX::TYPE::GROUP_SIZE, make_key(group));
 
     if (found.valid) {
         if (found.val_pipe->type == PIPE::TYPE::UINT64) {
-            ++((uint64_t *) found.val_pipe->data)[found.index];
+            uint64_t &value = to_uint64(*found.val_pipe)[found.index];
+            ++value;
         }
         else die();
     }
     else {
-        return insert(INDEX::TYPE::GROUP_SIZE, group, make_pipe_entry(1)).error;
+        return insert(
+            INDEX::TYPE::GROUP_SIZE, make_key(group), make_pipe_entry(1)
+        ).error;
     }
 
     return ERROR::NONE;
@@ -2733,8 +2762,8 @@ SOCKETS::ERROR SOCKETS::set_flag(
 
     INDEX::ENTRY entry{
         insert(
-            INDEX::TYPE::FLAG_DESCRIPTOR, static_cast<uint64_t>(flag),
-            make_pipe_entry(descriptor)
+            INDEX::TYPE::FLAG_DESCRIPTOR,
+            make_key(flag), make_pipe_entry(descriptor)
         )
     };
 
@@ -2767,7 +2796,7 @@ void SOCKETS::rem_flag(int descriptor, FLAG flag) noexcept {
 
     size_t erased = erase(
         INDEX::TYPE::FLAG_DESCRIPTOR,
-        static_cast<uint64_t>(flag), make_pipe_entry(descriptor), pos, 1
+        make_key(flag), make_pipe_entry(descriptor), pos, 1
     );
 
     if (!erased) {
@@ -2776,10 +2805,7 @@ void SOCKETS::rem_flag(int descriptor, FLAG flag) noexcept {
     }
 
     INDEX::ENTRY entry{
-        find(
-            INDEX::TYPE::FLAG_DESCRIPTOR,
-            static_cast<uint64_t>(flag), {}, pos, 1
-        )
+        find(INDEX::TYPE::FLAG_DESCRIPTOR, make_key(flag), {}, pos, 1)
     };
 
     if (entry.valid && entry.index == pos) {
@@ -2812,21 +2838,21 @@ bool SOCKETS::has_flag(int descriptor, FLAG flag) const noexcept {
 }
 
 SOCKETS::INDEX::ENTRY SOCKETS::find(
-    INDEX::TYPE index_type, uint64_t key, PIPE::ENTRY value,
+    INDEX::TYPE index_type, KEY key, PIPE::ENTRY value,
     size_t start_i, size_t iterations
 ) const noexcept {
     const INDEX &index = indices[size_t(index_type)];
 
     if (index.buckets <= 0) die();
 
-    INDEX::TABLE &table = index.table[key % index.buckets];
+    INDEX::TABLE &table = index.table[key.value % index.buckets];
     PIPE &key_pipe = table.key;
 
-    if (key_pipe.type != PIPE::TYPE::UINT64) {
-        die(); // The only valid key type is uint64_t.
+    if (key_pipe.type != PIPE::TYPE::KEY) {
+        die();
     }
 
-    const uint64_t *data = (const uint64_t *) key_pipe.data;
+    const KEY *data = to_key(key_pipe);
 
     if (!data) {
         return {};
@@ -2842,7 +2868,7 @@ SOCKETS::INDEX::ENTRY SOCKETS::find(
     size_t i = std::min(sz-1, start_i);
 
     for (; i<sz && iterations; --i, --iterations) {
-        if (data[i] != key) {
+        if (data[i].value != key.value) {
             continue;
         }
 
@@ -2894,6 +2920,15 @@ SOCKETS::INDEX::ENTRY SOCKETS::find(
 
                     break;
                 }
+                case PIPE::TYPE::KEY: {
+                    const KEY *vd = (const KEY *) value_pipe.data;
+
+                    if (std::memcmp(vd+i, &value.as_key, sizeof(KEY))) {
+                        continue;
+                    }
+
+                    break;
+                }
                 case PIPE::TYPE::NONE: die(); continue;
             }
         }
@@ -2912,32 +2947,29 @@ SOCKETS::INDEX::ENTRY SOCKETS::find(
 }
 
 SOCKETS::INDEX::ENTRY SOCKETS::insert(
-    INDEX::TYPE index_type, uint64_t key, PIPE::ENTRY value
+    INDEX::TYPE index_type, KEY key, PIPE::ENTRY value
 ) noexcept {
     const INDEX &index = indices[size_t(index_type)];
 
-    if (index.buckets <= 0) die();
-
-    INDEX::TABLE &table = index.table[key % index.buckets];
-    PIPE &key_pipe = table.key;
-
-    if (key_pipe.type != PIPE::TYPE::UINT64) die();
-
-    PIPE &val_pipe = table.value;
-
     if (!index.multimap) {
-        uint64_t *key_data = (uint64_t *) key_pipe.data;
+        INDEX::ENTRY found{ find(index_type, key) };
 
-        for (size_t i=0; i<key_pipe.size; ++i) {
-            if (key_data[i] != key) {
-                continue;
-            }
-
+        if (found.valid) {
             return make_index_entry(
-                key_pipe, val_pipe, i, insert(val_pipe, i, value)
+                *found.key_pipe, *found.val_pipe, found.index,
+                insert(*found.val_pipe, found.index, value)
             );
         }
     }
+
+    if (index.buckets <= 0) die();
+
+    INDEX::TABLE &table = index.table[key.value % index.buckets];
+    PIPE &key_pipe = table.key;
+
+    if (key_pipe.type != PIPE::TYPE::KEY) die();
+
+    PIPE &val_pipe = table.value;
 
     size_t old_size = key_pipe.size;
 
@@ -2958,19 +2990,19 @@ SOCKETS::INDEX::ENTRY SOCKETS::insert(
 }
 
 size_t SOCKETS::erase(
-    INDEX::TYPE index_type, uint64_t key, PIPE::ENTRY value,
+    INDEX::TYPE index_type, KEY key, PIPE::ENTRY value,
     size_t start_i, size_t iterations
 ) noexcept {
     const INDEX &index = indices[size_t(index_type)];
 
     if (index.buckets <= 0) die();
 
-    INDEX::TABLE &table = index.table[key % index.buckets];
+    INDEX::TABLE &table = index.table[key.value % index.buckets];
     PIPE &key_pipe = table.key;
 
-    if (key_pipe.type != PIPE::TYPE::UINT64) die();
+    if (key_pipe.type != PIPE::TYPE::KEY) die();
 
-    uint64_t *key_data = (uint64_t *) key_pipe.data;
+    KEY *key_data = to_key(key_pipe);
 
     size_t erased = 0;
 
@@ -2993,7 +3025,7 @@ size_t SOCKETS::erase(
     };
 
     for (; i < key_pipe.size && iterations; --iterations) {
-        if (key_data[i] != key) {
+        if (key_data[i].value != key.value) {
             --i;
             continue;
         }
@@ -3051,6 +3083,16 @@ size_t SOCKETS::erase(
 
                     break;
                 }
+                case PIPE::TYPE::KEY: {
+                    const KEY *vd = (const KEY *) val_pipe.data;
+
+                    if (std::memcmp(vd+i, &value.as_key, sizeof(KEY))) {
+                        i = index.multimap ? i-1 : key_pipe.size;
+                        continue;
+                    }
+
+                    break;
+                }
                 case PIPE::TYPE::NONE: die(); continue;
             }
         }
@@ -3072,24 +3114,21 @@ size_t SOCKETS::erase(
     return erased;
 }
 
-size_t SOCKETS::count(INDEX::TYPE index_type, uint64_t key) const noexcept {
+size_t SOCKETS::count(INDEX::TYPE index_type, KEY key) const noexcept {
     size_t count = 0;
     const INDEX &index = indices[size_t(index_type)];
 
     if (index.buckets > 0) {
-        const INDEX::TABLE &table = index.table[key % index.buckets];
+        const INDEX::TABLE &table = index.table[key.value % index.buckets];
         const PIPE &pipe = table.key;
+        const KEY *data = to_key(pipe);
 
-        if (pipe.type == PIPE::TYPE::UINT64) {
-            const uint64_t *data = (const uint64_t *) pipe.data;
+        if (data) {
+            for (size_t i=0, sz=pipe.size; i<sz; ++i) {
+                if (data[i].value == key.value) {
+                    ++count;
 
-            if (data) {
-                for (size_t i=0, sz=pipe.size; i<sz; ++i) {
-                    if (data[i] == key) {
-                        ++count;
-
-                        if (!index.multimap) return count;
-                    }
+                    if (!index.multimap) return count;
                 }
             }
         }
@@ -3129,6 +3168,10 @@ void SOCKETS::replace(
         }
         case PIPE::TYPE::MEMORY: {
             ((MEMORY *) pipe.data)[index] = value.as_memory;
+            break;
+        }
+        case PIPE::TYPE::KEY: {
+            ((KEY *) pipe.data)[index] = value.as_key;
             break;
         }
         case PIPE::TYPE::NONE: die();
@@ -3267,6 +3310,25 @@ SOCKETS::ERROR SOCKETS::reserve(PIPE &pipe, size_t capacity) noexcept {
 
             break;
         }
+        case PIPE::TYPE::KEY: {
+            KEY *new_data = new (std::nothrow) KEY [capacity];
+
+            if (!new_data) {
+                return ERROR::OUT_OF_MEMORY;
+            }
+
+            KEY *old_data = (KEY *) pipe.data;
+
+            if (old_data) {
+                std::memcpy(new_data, old_data, pipe.size * sizeof(KEY));
+                delete [] old_data;
+            }
+
+            pipe.data = new_data;
+            pipe.capacity = capacity;
+
+            break;
+        }
         case PIPE::TYPE::NONE: return die();
     }
 
@@ -3361,6 +3423,13 @@ SOCKETS::ERROR SOCKETS::append(const PIPE &src, PIPE &dst) noexcept {
             );
             break;
         }
+        case PIPE::TYPE::KEY: {
+            std::memcpy(
+                static_cast<KEY *>(dst.data) + old_size, src.data,
+                count * sizeof(KEY)
+            );
+            break;
+        }
         case PIPE::TYPE::NONE: return die();
     }
 
@@ -3401,6 +3470,11 @@ void SOCKETS::erase(PIPE &pipe, size_t index) noexcept {
         }
         case PIPE::TYPE::MEMORY: {
             MEMORY *data = (MEMORY *) pipe.data;
+            data[index] = data[pipe.size-1];
+            break;
+        }
+        case PIPE::TYPE::KEY: {
+            KEY *data = (KEY *) pipe.data;
             data[index] = data[pipe.size-1];
             break;
         }
@@ -3471,6 +3545,10 @@ SOCKETS::PIPE::ENTRY SOCKETS::get_entry(
             entry.as_memory = static_cast<MEMORY *>(data)[index];
             break;
         }
+        case PIPE::TYPE::KEY: {
+            entry.as_key = static_cast<KEY *>(data)[index];
+            break;
+        }
         case PIPE::TYPE::NONE: die(); break;
     }
 
@@ -3515,6 +3593,11 @@ void SOCKETS::destroy(PIPE &pipe) noexcept {
 
             break;
         }
+        case PIPE::TYPE::KEY: {
+            if (pipe.data) delete [] ((KEY *) pipe.data);
+
+            break;
+        }
         case PIPE::TYPE::NONE: die(); break;
     }
 
@@ -3545,7 +3628,8 @@ const SOCKETS::MEMORY *SOCKETS::allocate(
     INDEX::ENTRY entry{
         insert(
             INDEX::TYPE::MEM_ADDR_INDEX,
-            reinterpret_cast<uintptr_t>(memory.data), make_pipe_entry(index)
+            make_key(reinterpret_cast<uintptr_t>(memory.data)),
+            make_pipe_entry(index)
         )
     };
 
@@ -3561,7 +3645,7 @@ const SOCKETS::MEMORY *SOCKETS::allocate(
 
     log("Allocated %lu byte%s.", memory.size, memory.size == 1 ? "" : "s");
 
-    return ((MEMORY *) mempool.data) + index;
+    return &to_memory(mempool)[index];
 }
 
 void SOCKETS::deallocate(const void *resource) noexcept {
@@ -3571,7 +3655,7 @@ void SOCKETS::deallocate(const void *resource) noexcept {
         INDEX::ENTRY entry{
             find(
                 INDEX::TYPE::MEM_ADDR_INDEX,
-                reinterpret_cast<uintptr_t>(resource)
+                make_key(reinterpret_cast<uintptr_t>(resource))
             )
         };
 
@@ -3583,7 +3667,7 @@ void SOCKETS::deallocate(const void *resource) noexcept {
         mempool_index = to_uint64(get_value(entry));
     }
 
-    MEMORY memory = ((MEMORY *) mempool.data)[mempool_index];
+    MEMORY memory = to_memory(mempool)[mempool_index];
 
     delete [] memory.data;
 
@@ -3592,12 +3676,12 @@ void SOCKETS::deallocate(const void *resource) noexcept {
     log("Deallocated %lu byte%s.", memory.size, memory.size == 1 ? "" : "s");
 
     if (mempool.size > mempool_index) {
-        memory = ((MEMORY *) mempool.data)[mempool_index];
+        memory = to_memory(mempool)[mempool_index];
 
         INDEX::ENTRY entry{
             find(
                 INDEX::TYPE::MEM_ADDR_INDEX,
-                reinterpret_cast<uintptr_t>(memory.data)
+                make_key(reinterpret_cast<uintptr_t>(memory.data))
             )
         };
 
@@ -3771,6 +3855,19 @@ constexpr struct SOCKETS::PIPE::ENTRY SOCKETS::make_pipe_entry(
 }
 
 constexpr struct SOCKETS::PIPE::ENTRY SOCKETS::make_pipe_entry(
+    KEY value
+) noexcept {
+    return
+#if __cplusplus <= 201703L
+    __extension__
+#endif
+    SOCKETS::PIPE::ENTRY{
+        .as_key = value,
+        .type = PIPE::TYPE::KEY
+    };
+}
+
+constexpr struct SOCKETS::PIPE::ENTRY SOCKETS::make_pipe_entry(
     jack_type *value
 ) noexcept {
     return
@@ -3781,6 +3878,20 @@ constexpr struct SOCKETS::PIPE::ENTRY SOCKETS::make_pipe_entry(
         .as_ptr = value,
         .type = PIPE::TYPE::JACK_PTR
     };
+}
+
+constexpr SOCKETS::KEY SOCKETS::make_key(uintptr_t val) noexcept {
+    return
+#if __cplusplus <= 201703L
+    __extension__
+#endif
+    SOCKETS::KEY{
+        .value = val
+    };
+}
+
+constexpr SOCKETS::KEY SOCKETS::make_key(FLAG val) noexcept {
+    return make_key(static_cast<uintptr_t>(val));
 }
 
 constexpr struct SOCKETS::MEMORY SOCKETS::make_memory(
