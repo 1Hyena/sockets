@@ -20,16 +20,16 @@ int main(int argc, char **argv) {
 
     printf("Initializing networking using SOCKETS v%s.\n", SOCKETS::VERSION);
 
-    if (!sockets.init()) {
-        printf("%s\n", "Failed to initialize networking.");
-        return EXIT_FAILURE;
-    }
-
     sockets.set_logger(
         [](const char *txt) noexcept {
             printf("Sockets: %s\n", txt);
         }
     );
+
+    if (!sockets.init()) {
+        printf("%s\n", "Failed to initialize networking.");
+        return EXIT_FAILURE;
+    }
 
     int tcp_listener = sockets.listen(SERVER_PORT);
 
