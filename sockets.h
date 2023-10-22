@@ -1922,49 +1922,44 @@ int SOCKETS::listen(
     set_flag(descriptor, FLAG::ACCEPT);
     set_flag(descriptor, FLAG::LISTENER);
 
-    jack_type *jack = find_jack(descriptor);
+    jack_type &jack = get_jack(descriptor);
 
-    if (jack) {
-        struct sockaddr in_addr;
-        socklen_t in_len = sizeof(in_addr);
+    struct sockaddr in_addr;
+    socklen_t in_len = sizeof(in_addr);
 
-        retval = getsockname(
-            descriptor, (struct sockaddr *)&in_addr, &in_len
+    retval = getsockname(descriptor, (struct sockaddr *)&in_addr, &in_len);
+
+    if (retval != 0) {
+        if (retval == -1) {
+            int code = errno;
+
+            log(
+                "getsockname: %s (%s:%d)", strerror(code), __FILE__, __LINE__
+            );
+        }
+        else {
+            log(
+                "getsockname: unexpected return value %d (%s:%d)",
+                retval, __FILE__, __LINE__
+            );
+        }
+    }
+    else {
+        retval = getnameinfo(
+            &in_addr, in_len,
+            jack.host, socklen_t(std::extent<decltype(jack.host)>::value),
+            jack.port, socklen_t(std::extent<decltype(jack.port)>::value),
+            NI_NUMERICHOST|NI_NUMERICSERV
         );
 
         if (retval != 0) {
-            if (retval == -1) {
-                int code = errno;
-
-                log(
-                    "getsockname: %s (%s:%d)", strerror(code),
-                    __FILE__, __LINE__
-                );
-            }
-            else {
-                log(
-                    "getsockname: unexpected return value %d (%s:%d)",
-                    retval, __FILE__, __LINE__
-                );
-            }
-        }
-        else {
-            retval = getnameinfo(
-                &in_addr, in_len,
-                jack->host, socklen_t(std::extent<decltype(jack->host)>::value),
-                jack->port, socklen_t(std::extent<decltype(jack->port)>::value),
-                NI_NUMERICHOST|NI_NUMERICSERV
+            log(
+                "getnameinfo: %s (%s:%d)", gai_strerror(retval),
+                __FILE__, __LINE__
             );
 
-            if (retval != 0) {
-                log(
-                    "getnameinfo: %s (%s:%d)", gai_strerror(retval),
-                    __FILE__, __LINE__
-                );
-
-                jack->host[0] = '\0';
-                jack->port[0] = '\0';
-            }
+            jack.host[0] = '\0';
+            jack.port[0] = '\0';
         }
     }
 
