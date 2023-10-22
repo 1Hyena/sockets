@@ -132,7 +132,6 @@ class SOCKETS final {
         DISCONNECT,
         CLOSE,
         INCOMING,
-        MAY_SHUTDOWN,
         LISTENER,
         // Do not change the order of the flags below this line.
         EPOLL,
@@ -234,6 +233,7 @@ class SOCKETS final {
         struct bitset_type {
             bool frozen:1;
             bool connecting:1;
+            bool may_shutdown:1;
         } bitset;
     };
 
@@ -877,8 +877,7 @@ SOCKETS::ERROR SOCKETS::next_error(int timeout) noexcept {
             case FLAG::LISTENER:
             case FLAG::INCOMING:
             case FLAG::NEW_CONNECTION:
-            case FLAG::DISCONNECT:
-            case FLAG::MAY_SHUTDOWN: {
+            case FLAG::DISCONNECT: {
                 // This flag has no handler and is to be ignored here.
 
                 continue;
@@ -1423,7 +1422,7 @@ SOCKETS::ERROR SOCKETS::handle_epoll(
                 );
             }
 
-            rem_flag(d, FLAG::MAY_SHUTDOWN);
+            jack.bitset.may_shutdown = false;
             terminate(d);
 
             continue;
@@ -1443,7 +1442,7 @@ SOCKETS::ERROR SOCKETS::handle_epoll(
                 if (jack.bitset.connecting) {
                     jack.bitset.connecting = false;
                     set_flag(d, FLAG::NEW_CONNECTION);
-                    set_flag(d, FLAG::MAY_SHUTDOWN);
+                    jack.bitset.may_shutdown = true;
                     modify_epoll(d, EPOLLIN|EPOLLET|EPOLLRDHUP);
                 }
             }
@@ -1529,7 +1528,7 @@ SOCKETS::ERROR SOCKETS::handle_read(int descriptor) noexcept {
         //}
     }
 
-    rem_flag(descriptor, FLAG::MAY_SHUTDOWN);
+    jack.bitset.may_shutdown = false;
     terminate(descriptor);
 
     return ERROR::NONE;
@@ -1751,7 +1750,7 @@ SOCKETS::ERROR SOCKETS::handle_accept(int descriptor) noexcept {
     }
     else {
         set_flag(client_descriptor, FLAG::NEW_CONNECTION);
-        set_flag(client_descriptor, FLAG::MAY_SHUTDOWN);
+        client_jack.bitset.may_shutdown = true;
     }
 
     // We successfully accepted one client, but since there may be more of
@@ -1811,7 +1810,7 @@ int SOCKETS::connect(
         modify_epoll(descriptor, EPOLLOUT|EPOLLET);
     }
     else {
-        set_flag(descriptor, FLAG::MAY_SHUTDOWN);
+        jack.bitset.may_shutdown = true;
         set_flag(descriptor, FLAG::NEW_CONNECTION);
     }
 
@@ -1835,8 +1834,8 @@ void SOCKETS::terminate(int descriptor, const char *file, int line) noexcept {
         set_flag(descriptor, FLAG::DISCONNECT);
     }
 
-    if (has_flag(descriptor, FLAG::MAY_SHUTDOWN)) {
-        rem_flag(descriptor, FLAG::MAY_SHUTDOWN);
+    if (jack.bitset.may_shutdown) {
+        jack.bitset.may_shutdown = false;
 
         if (has_flag(descriptor, FLAG::WRITE) && !jack.bitset.connecting) {
             // Let's handle writing here so that the descriptor would have a
