@@ -26,7 +26,7 @@ int main(int argc, char **argv) {
     if (sockets.connect(SERVER_HOST, SERVER_PORT)) {
         constexpr int timeout_ms = 3000;
         bool connected = false;
-        SOCKETS::EVENT ev;
+        SOCKETS::ALERT alert;
 
         printf("%s\n", "Waiting for socket events.");
 
@@ -40,10 +40,10 @@ int main(int argc, char **argv) {
                 continue;
             }
 
-            while ((ev = sockets.next_event()).valid) {
-                int d = ev.descriptor;
+            while ((alert = sockets.next_alert()).valid) {
+                int d = alert.descriptor;
 
-                switch (ev.type) {
+                switch (alert.event) {
                     case SOCKETS::EV_CONNECTION: {
                         printf(
                             "Connected to %s:%s.\n",
@@ -82,7 +82,7 @@ int main(int argc, char **argv) {
                 break;
             }
 
-            if (ev.type == SOCKETS::EV_DISCONNECTION) break;
+            if (alert.event == SOCKETS::EV_DISCONNECTION) break;
         }
 
         if (sockets.last_error() != SOCKETS::ERR_NONE) {

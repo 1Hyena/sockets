@@ -45,15 +45,16 @@ using the SOCKETS library.
 sockets.listen("4000");
 
 while (!sockets.next_error()) {
-    SOCKETS::EVENT ev{ sockets.next_event() };
+    SOCKETS::ALERT alert{ sockets.next_alert() };
 
-    if (ev.type == SOCKETS::EV_CONNECTION) {
+    if (alert.event == SOCKETS::EV_CONNECTION) {
         sockets.writef(
-            ev.descriptor, "Hello, %s:%s!\n",
-            sockets.get_host(ev.descriptor), sockets.get_port(ev.descriptor)
+            alert.descriptor, "Hello, %s:%s!\n",
+            sockets.get_host(alert.descriptor),
+            sockets.get_port(alert.descriptor)
         );
 
-        sockets.disconnect(ev.descriptor);
+        sockets.disconnect(alert.descriptor);
     }
 }
 ```
@@ -65,12 +66,13 @@ the following code snippet.
 sockets.connect("localhost", "4000");
 
 while (!sockets.next_error()) {
-    SOCKETS::EVENT ev{ sockets.next_event() };
+    SOCKETS::ALERT alert{ sockets.next_alert() };
 
-    if (ev.type == SOCKETS::EV_CONNECTION) {
+    if (alert.event == SOCKETS::EV_CONNECTION) {
         printf(
             "Connected to %s:%s.\n",
-            sockets.get_host(ev.descriptor), sockets.get_port(ev.descriptor)
+            sockets.get_host(alert.descriptor),
+            sockets.get_port(alert.descriptor)
         );
     }
 }
@@ -94,7 +96,7 @@ examples.
 
 * [ex_sleep](examples/src/ex_sleep.cpp) —
   The _SOCKETS::next_error_ method can take an argument specifying the maximum
-  number of milliseconds to wait for networking events. This feature can be used
+  number of milliseconds to wait for networking alerts. This feature can be used
   to simulate a sleeping routine where the program stops using any processing
   power for a given amount of time.
 

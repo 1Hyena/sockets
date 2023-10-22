@@ -74,13 +74,13 @@ int main(int argc, char **argv) {
 }
 
 static void handle(SOCKETS &sockets) {
-    SOCKETS::EVENT ev;
+    SOCKETS::ALERT alert;
     std::vector<uint8_t> buffer;
 
-    while ((ev = sockets.next_event()).valid) {
-        int d = ev.descriptor;
+    while ((alert = sockets.next_alert()).valid) {
+        int d = alert.descriptor;
 
-        switch (ev.type) {
+        switch (alert.event) {
             case SOCKETS::EV_CONNECTION: {
                 printf(
                     "New connection from %s:%s (descriptor %d).\n",
