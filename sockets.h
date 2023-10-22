@@ -131,7 +131,6 @@ class SOCKETS final {
         DISCONNECT,
         CLOSE,
         INCOMING,
-        LISTENER,
         // Do not change the order of the flags below this line.
         EPOLL,
         MAX_FLAGS
@@ -234,6 +233,7 @@ class SOCKETS final {
             bool connecting:1;
             bool may_shutdown:1;
             bool reconnect:1;
+            bool listener:1;
         } bitset;
     };
 
@@ -764,7 +764,8 @@ int SOCKETS::next_incoming() noexcept {
 }
 
 bool SOCKETS::is_listener(int descriptor) const noexcept {
-    return has_flag(descriptor, FLAG::LISTENER);
+    const jack_type *jack = find_jack(descriptor);
+    return jack ? jack->bitset.listener : false;
 }
 
 int SOCKETS::get_group(int descriptor) const noexcept {
@@ -873,7 +874,6 @@ SOCKETS::ERROR SOCKETS::next_error(int timeout) noexcept {
         FLAG flag = serving;
 
         switch (flag) {
-            case FLAG::LISTENER:
             case FLAG::INCOMING:
             case FLAG::NEW_CONNECTION:
             case FLAG::DISCONNECT: {
@@ -1920,9 +1920,10 @@ int SOCKETS::listen(
     }
 
     set_flag(descriptor, FLAG::ACCEPT);
-    set_flag(descriptor, FLAG::LISTENER);
 
     jack_type &jack = get_jack(descriptor);
+
+    jack.bitset.listener = true;
 
     struct sockaddr in_addr;
     socklen_t in_len = sizeof(in_addr);
