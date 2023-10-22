@@ -134,7 +134,6 @@ class SOCKETS final {
         INCOMING,
         MAY_SHUTDOWN,
         LISTENER,
-        CONNECTING,
         // Do not change the order of the flags below this line.
         EPOLL,
         MAX_FLAGS
@@ -234,6 +233,7 @@ class SOCKETS final {
         struct addrinfo *blacklist;
         struct bitset_type {
             bool frozen:1;
+            bool connecting:1;
         } bitset;
     };
 
@@ -878,7 +878,6 @@ SOCKETS::ERROR SOCKETS::next_error(int timeout) noexcept {
             case FLAG::INCOMING:
             case FLAG::NEW_CONNECTION:
             case FLAG::DISCONNECT:
-            case FLAG::CONNECTING:
             case FLAG::MAY_SHUTDOWN: {
                 // This flag has no handler and is to be ignored here.
 
@@ -1279,14 +1278,14 @@ SOCKETS::ERROR SOCKETS::handle_close(int descriptor) noexcept {
         }
     }
 
-    if (has_flag(descriptor, FLAG::CONNECTING)
+    if (jack.bitset.connecting
     && !has_flag(descriptor, FLAG::RECONNECT)
     && !has_flag(descriptor, FLAG::DISCONNECT)) {
         // Here we postpone closing this descriptor because we first want to
         // notify the user of this library of the connection that could not be
         // established.
 
-        rem_flag(descriptor, FLAG::CONNECTING);
+        jack.bitset.connecting = false;
         set_flag(descriptor, FLAG::DISCONNECT);
 
         return ERROR::NONE;
@@ -1329,8 +1328,7 @@ SOCKETS::ERROR SOCKETS::handle_epoll(
 
     bitset.unhandled_events = false;
 
-    jack_type &jack = get_jack(epoll_descriptor);
-    epoll_event *events = &(jack.events[1]);
+    epoll_event *events = &(get_jack(epoll_descriptor).events[1]);
 
     int pending = epoll_pwait(
         epoll_descriptor, events, EPOLL_MAX_EVENTS, timeout, &sigset_none
@@ -1361,6 +1359,7 @@ SOCKETS::ERROR SOCKETS::handle_epoll(
 
     for (int i=0; i<pending; ++i) {
         const int d = events[i].data.fd;
+        jack_type &jack = get_jack(d);
 
         if ((  events[i].events & EPOLLERR )
         ||  (  events[i].events & EPOLLHUP )
@@ -1399,7 +1398,7 @@ SOCKETS::ERROR SOCKETS::handle_epoll(
                             break;
                         }
                         case ECONNREFUSED: {
-                            if (has_flag(d, FLAG::CONNECTING)) {
+                            if (jack.bitset.connecting) {
                                 set_flag(d, FLAG::RECONNECT);
                                 break;
                             }
@@ -1441,8 +1440,8 @@ SOCKETS::ERROR SOCKETS::handle_epoll(
             if (events[i].events & EPOLLOUT) {
                 set_flag(d, FLAG::WRITE);
 
-                if (has_flag(d, FLAG::CONNECTING)) {
-                    rem_flag(d, FLAG::CONNECTING);
+                if (jack.bitset.connecting) {
+                    jack.bitset.connecting = false;
                     set_flag(d, FLAG::NEW_CONNECTION);
                     set_flag(d, FLAG::MAY_SHUTDOWN);
                     modify_epoll(d, EPOLLIN|EPOLLET|EPOLLRDHUP);
@@ -1808,7 +1807,7 @@ int SOCKETS::connect(
         return NO_DESCRIPTOR;
     }
 
-    if (has_flag(descriptor, FLAG::CONNECTING)) {
+    if (jack.bitset.connecting) {
         modify_epoll(descriptor, EPOLLOUT|EPOLLET);
     }
     else {
@@ -1827,8 +1826,9 @@ void SOCKETS::terminate(int descriptor, const char *file, int line) noexcept {
         return;
     }
 
-    if (has_flag(descriptor, FLAG::RECONNECT)
-    ||  has_flag(descriptor, FLAG::CONNECTING)) {
+    jack_type &jack = get_jack(descriptor);
+
+    if (has_flag(descriptor, FLAG::RECONNECT) || jack.bitset.connecting) {
         set_flag(descriptor, FLAG::CLOSE);
     }
     else {
@@ -1838,8 +1838,7 @@ void SOCKETS::terminate(int descriptor, const char *file, int line) noexcept {
     if (has_flag(descriptor, FLAG::MAY_SHUTDOWN)) {
         rem_flag(descriptor, FLAG::MAY_SHUTDOWN);
 
-        if (has_flag(descriptor, FLAG::WRITE)
-        && !has_flag(descriptor, FLAG::CONNECTING)) {
+        if (has_flag(descriptor, FLAG::WRITE) && !jack.bitset.connecting) {
             // Let's handle writing here so that the descriptor would have a
             // chance to receive any pending bytes before being shut down.
             handle_write(descriptor);
@@ -2123,17 +2122,17 @@ int SOCKETS::open_and_init(
             continue;
         }
 
-        jack_type *rec = nullptr;
+        jack_type *jack = nullptr;
 
         ERROR error{capture(make_jack(descriptor, NO_DESCRIPTOR, 0))};
 
         if (error == ERROR::NONE) {
-            rec = &get_jack(descriptor);
-            rec->ai_family = ai_family;
-            rec->ai_flags  = ai_flags;
+            jack = &get_jack(descriptor);
+            jack->ai_family = ai_family;
+            jack->ai_flags  = ai_flags;
         }
 
-        if (rec && accept_incoming_connections) {
+        if (jack && accept_incoming_connections) {
             int optval = 1;
 
             retval = setsockopt(
@@ -2180,7 +2179,7 @@ int SOCKETS::open_and_init(
                 else break;
             }
         }
-        else if (rec) {
+        else if (jack) {
             // Let's block all signals before calling connect because we
             // don't want it to fail due to getting interrupted by a singal.
 
@@ -2209,7 +2208,7 @@ int SOCKETS::open_and_init(
 
                         if (code == EINPROGRESS) {
                             success = true;
-                            set_flag(descriptor, FLAG::CONNECTING);
+                            jack->bitset.connecting = true;
 
                             if (info == next) {
                                 info = next->ai_next;
@@ -2218,8 +2217,8 @@ int SOCKETS::open_and_init(
                                 prev->ai_next = next->ai_next;
                             }
 
-                            next->ai_next = rec->blacklist;
-                            rec->blacklist = next;
+                            next->ai_next = jack->blacklist;
+                            jack->blacklist = next;
                         }
                         else if (code != ECONNREFUSED) {
                             log(
