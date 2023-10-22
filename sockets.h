@@ -124,7 +124,6 @@ class SOCKETS final {
     enum class FLAG : uint8_t {
         NONE = 0,
         // Do not change the order of the flags above this line.
-        RECONNECT,
         READ,
         WRITE,
         ACCEPT,
@@ -234,6 +233,7 @@ class SOCKETS final {
             bool frozen:1;
             bool connecting:1;
             bool may_shutdown:1;
+            bool reconnect:1;
         } bitset;
     };
 
@@ -873,7 +873,6 @@ SOCKETS::ERROR SOCKETS::next_error(int timeout) noexcept {
         FLAG flag = serving;
 
         switch (flag) {
-            case FLAG::RECONNECT:
             case FLAG::LISTENER:
             case FLAG::INCOMING:
             case FLAG::NEW_CONNECTION:
@@ -1247,14 +1246,14 @@ void SOCKETS::out_of_memory(const char *file, int line) const noexcept {
 SOCKETS::ERROR SOCKETS::handle_close(int descriptor) noexcept {
     jack_type &jack = get_jack(descriptor);
 
-    if (has_flag(descriptor, FLAG::RECONNECT)) {
+    if (jack.bitset.reconnect) {
         int new_descriptor = connect(
             get_host(descriptor), get_port(descriptor),
             get_group(descriptor), jack.ai_family, jack.ai_flags, jack.blacklist
         );
 
         if (new_descriptor == NO_DESCRIPTOR) {
-            rem_flag(descriptor, FLAG::RECONNECT);
+            jack.bitset.reconnect = false;
         }
         else {
             jack_type &new_jack = get_jack(new_descriptor);
@@ -1278,7 +1277,7 @@ SOCKETS::ERROR SOCKETS::handle_close(int descriptor) noexcept {
     }
 
     if (jack.bitset.connecting
-    && !has_flag(descriptor, FLAG::RECONNECT)
+    && !jack.bitset.reconnect
     && !has_flag(descriptor, FLAG::DISCONNECT)) {
         // Here we postpone closing this descriptor because we first want to
         // notify the user of this library of the connection that could not be
@@ -1398,7 +1397,7 @@ SOCKETS::ERROR SOCKETS::handle_epoll(
                         }
                         case ECONNREFUSED: {
                             if (jack.bitset.connecting) {
-                                set_flag(d, FLAG::RECONNECT);
+                                jack.bitset.reconnect = true;
                                 break;
                             }
                         } // fall through
@@ -1827,7 +1826,7 @@ void SOCKETS::terminate(int descriptor, const char *file, int line) noexcept {
 
     jack_type &jack = get_jack(descriptor);
 
-    if (has_flag(descriptor, FLAG::RECONNECT) || jack.bitset.connecting) {
+    if (jack.bitset.reconnect || jack.bitset.connecting) {
         set_flag(descriptor, FLAG::CLOSE);
     }
     else {
