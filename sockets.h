@@ -334,6 +334,7 @@ class SOCKETS final {
     ) noexcept;
     void rem_event(jack_type &, EVENT) noexcept;
     bool has_event(const jack_type &, EVENT) const noexcept;
+    [[nodiscard]] bool is_listener(const jack_type &) const noexcept;
 
     size_t count(INDEX::TYPE, KEY key) const noexcept;
     INDEX::ENTRY find(
@@ -753,9 +754,13 @@ int SOCKETS::next_incoming() noexcept {
     return NO_DESCRIPTOR;
 }
 
+bool SOCKETS::is_listener(const jack_type &jack) const noexcept {
+    return jack.bitset.listener;
+}
+
 bool SOCKETS::is_listener(int descriptor) const noexcept {
     const jack_type *jack = find_jack(descriptor);
-    return jack ? jack->bitset.listener : false;
+    return jack ? is_listener(*jack) : false;
 }
 
 int SOCKETS::get_group(int descriptor) const noexcept {
@@ -1419,7 +1424,7 @@ SOCKETS::ERROR SOCKETS::handle_epoll(
             continue;
         }
 
-        if (is_listener(d)) {
+        if (is_listener(jack)) {
             set_event(jack, EVENT::ACCEPT);
         }
         else {
@@ -1852,7 +1857,7 @@ void SOCKETS::terminate(int descriptor, const char *file, int line) noexcept {
         }
     }
 
-    if (is_listener(descriptor)) {
+    if (is_listener(jack)) {
         INDEX &index = get_index(INDEX::TYPE::DESCRIPTOR_JACK);
 
         for (size_t bucket=0; bucket < index.buckets; ++bucket) {
