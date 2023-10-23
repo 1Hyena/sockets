@@ -143,6 +143,8 @@ class SOCKETS final {
     struct MEMORY {
         size_t   size;
         uint8_t *data;
+        MEMORY  *next;
+        MEMORY  *prev;
     };
 
     struct KEY {
@@ -157,7 +159,7 @@ class SOCKETS final {
             INT,
             PTR,
             JACK_PTR,
-            MEMORY,
+            MEMORY_PTR,
             KEY
         };
 
@@ -167,7 +169,6 @@ class SOCKETS final {
                 uint64_t as_uint64;
                 int      as_int;
                 void    *as_ptr;
-                MEMORY   as_memory;
                 KEY      as_key;
             };
             TYPE type;
@@ -185,8 +186,8 @@ class SOCKETS final {
             // Do not change the order of the types above this line.
             GROUP_SIZE,
             EVENT_DESCRIPTOR,
-            MEM_ADDR_INDEX,
             DESCRIPTOR_JACK,
+            RESOURCE_MEMORY,
             // Do not change the order of the types below this line.
             MAX_TYPES
         };
@@ -235,10 +236,6 @@ class SOCKETS final {
     inline static constexpr KEY make_key(uintptr_t) noexcept;
     inline static constexpr KEY make_key(EVENT) noexcept;
 
-    inline static constexpr MEMORY make_memory(
-        uint8_t *data, size_t size
-    ) noexcept;
-
     inline static constexpr struct jack_type make_jack(
         int descriptor, int parent, int group
     ) noexcept;
@@ -264,9 +261,9 @@ class SOCKETS final {
     inline static constexpr PIPE::ENTRY make_pipe_entry(PIPE::TYPE ) noexcept;
     inline static constexpr PIPE::ENTRY make_pipe_entry(uint64_t   ) noexcept;
     inline static constexpr PIPE::ENTRY make_pipe_entry(int        ) noexcept;
-    inline static constexpr PIPE::ENTRY make_pipe_entry(MEMORY     ) noexcept;
     inline static constexpr PIPE::ENTRY make_pipe_entry(KEY        ) noexcept;
     inline static constexpr PIPE::ENTRY make_pipe_entry(jack_type *) noexcept;
+    inline static constexpr PIPE::ENTRY make_pipe_entry(MEMORY    *) noexcept;
 
     inline static bool is_listed(
         const addrinfo &info, const addrinfo *list
@@ -367,14 +364,13 @@ class SOCKETS final {
     PIPE &get_buffer(BUFFER) noexcept;
     INDEX &get_index(INDEX::TYPE) noexcept;
 
-    MEMORY     to_memory(PIPE::ENTRY) const noexcept;
     jack_type *to_jack  (PIPE::ENTRY) const noexcept;
+    MEMORY    *to_memory(PIPE::ENTRY) const noexcept;
     int        to_int   (PIPE::ENTRY) const noexcept;
     uint64_t   to_uint64(PIPE::ENTRY) const noexcept;
 
     uint8_t  *to_uint8 (const PIPE &) const noexcept;
     uint64_t *to_uint64(const PIPE &) const noexcept;
-    MEMORY   *to_memory(const PIPE &) const noexcept;
     KEY      *to_key   (const PIPE &) const noexcept;
 
     const MEMORY *allocate(size_t bytes, const void *copy =nullptr) noexcept;
@@ -404,7 +400,7 @@ class SOCKETS final {
     void (*log_callback)(const char *text) noexcept;
     INDEX indices[static_cast<size_t>(INDEX::TYPE::MAX_TYPES)];
     PIPE  buffers[static_cast<size_t>(BUFFER::MAX_BUFFERS)];
-    PIPE  mempool;
+    MEMORY *allocated;
     EVENT handled;
     ERROR errored;
 
@@ -424,7 +420,7 @@ bool operator!(SOCKETS::ERROR error) noexcept {
 }
 
 SOCKETS::SOCKETS() noexcept :
-    log_callback(nullptr), indices{}, buffers{}, mempool{}, handled{},
+    log_callback(nullptr), indices{}, buffers{}, allocated(nullptr), handled{},
     errored{}, bitset{} {
 }
 
@@ -449,11 +445,9 @@ void SOCKETS::clear() noexcept {
     errored = ERROR::NONE;
     handled = EVENT::NONE;
 
-    while (mempool.size) {
-        deallocate(to_memory(pop_back(mempool)).data);
+    while (allocated) {
+        deallocate(allocated->data);
     }
-
-    destroy(mempool);
 
     for (PIPE &buffer : buffers) {
         destroy(buffer);
@@ -545,7 +539,7 @@ bool SOCKETS::init() noexcept {
         switch (index.type) {
             case INDEX::TYPE::NONE: continue;
             case INDEX::TYPE::EVENT_DESCRIPTOR:
-            case INDEX::TYPE::MEM_ADDR_INDEX:
+            case INDEX::TYPE::RESOURCE_MEMORY:
             case INDEX::TYPE::DESCRIPTOR_JACK:
             case INDEX::TYPE::GROUP_SIZE: {
                 index.table = new (std::nothrow) INDEX::TABLE [index.buckets]();
@@ -567,11 +561,14 @@ bool SOCKETS::init() noexcept {
             key_pipe.type = PIPE::TYPE::KEY;
 
             switch (index.type) {
+                case INDEX::TYPE::RESOURCE_MEMORY: {
+                    val_pipe.type = PIPE::TYPE::MEMORY_PTR;
+                    break;
+                }
                 case INDEX::TYPE::DESCRIPTOR_JACK: {
                     val_pipe.type = PIPE::TYPE::JACK_PTR;
                     break;
                 }
-                case INDEX::TYPE::MEM_ADDR_INDEX:
                 case INDEX::TYPE::GROUP_SIZE: {
                     val_pipe.type = PIPE::TYPE::UINT64;
                     break;
@@ -628,8 +625,6 @@ bool SOCKETS::init() noexcept {
             case BUFFER::MAX_BUFFERS: die();
         }
     }
-
-    mempool.type = PIPE::TYPE::MEMORY;
 
     int epoll_descriptor = create_epoll();
 
@@ -2602,16 +2597,16 @@ SOCKETS::INDEX &SOCKETS::get_index(INDEX::TYPE index_type) noexcept {
     return indices[i];
 }
 
-SOCKETS::MEMORY SOCKETS::to_memory(PIPE::ENTRY entry) const noexcept {
-    if (entry.type != PIPE::TYPE::MEMORY) die();
-
-    return entry.as_memory;
-}
-
 SOCKETS::jack_type *SOCKETS::to_jack(PIPE::ENTRY entry) const noexcept {
     if (entry.type != PIPE::TYPE::JACK_PTR) die();
 
     return static_cast<jack_type *>(entry.as_ptr);
+}
+
+SOCKETS::MEMORY *SOCKETS::to_memory(PIPE::ENTRY entry) const noexcept {
+    if (entry.type != PIPE::TYPE::MEMORY_PTR) die();
+
+    return static_cast<MEMORY *>(entry.as_ptr);
 }
 
 int SOCKETS::to_int(PIPE::ENTRY entry) const noexcept {
@@ -2642,12 +2637,6 @@ SOCKETS::KEY *SOCKETS::to_key(const PIPE &pipe) const noexcept {
     if (pipe.type != PIPE::TYPE::KEY) die();
 
     return static_cast<KEY *>(pipe.data);
-}
-
-SOCKETS::MEMORY *SOCKETS::to_memory(const PIPE &pipe) const noexcept {
-    if (pipe.type != PIPE::TYPE::MEMORY) die();
-
-    return static_cast<MEMORY *>(pipe.data);
 }
 
 bool SOCKETS::modify_epoll(int descriptor, uint32_t events) noexcept {
@@ -2884,20 +2873,12 @@ SOCKETS::INDEX::ENTRY SOCKETS::find(
 
                     break;
                 }
+                case PIPE::TYPE::MEMORY_PTR:
                 case PIPE::TYPE::JACK_PTR:
                 case PIPE::TYPE::PTR: {
                     const void **vd = (const void **) value_pipe.data;
 
                     if (vd[i] != value.as_ptr) {
-                        continue;
-                    }
-
-                    break;
-                }
-                case PIPE::TYPE::MEMORY: {
-                    const MEMORY *vd = (const MEMORY *) value_pipe.data;
-
-                    if (std::memcmp(vd+i, &value.as_memory, sizeof(MEMORY))) {
                         continue;
                     }
 
@@ -3045,21 +3026,12 @@ size_t SOCKETS::erase(
 
                     break;
                 }
+                case PIPE::TYPE::MEMORY_PTR:
                 case PIPE::TYPE::JACK_PTR:
                 case PIPE::TYPE::PTR: {
                     const void **vd = (const void **) val_pipe.data;
 
                     if (vd[i] != value.as_ptr) {
-                        i = index.multimap ? i-1 : key_pipe.size;
-                        continue;
-                    }
-
-                    break;
-                }
-                case PIPE::TYPE::MEMORY: {
-                    const MEMORY *vd = (const MEMORY *) val_pipe.data;
-
-                    if (std::memcmp(vd+i, &value.as_memory, sizeof(MEMORY))) {
                         i = index.multimap ? i-1 : key_pipe.size;
                         continue;
                     }
@@ -3144,13 +3116,10 @@ void SOCKETS::replace(
             ((int *) pipe.data)[index] = value.as_int;
             break;
         }
+        case PIPE::TYPE::MEMORY_PTR:
         case PIPE::TYPE::JACK_PTR:
         case PIPE::TYPE::PTR: {
             ((void **) pipe.data)[index] = value.as_ptr;
-            break;
-        }
-        case PIPE::TYPE::MEMORY: {
-            ((MEMORY *) pipe.data)[index] = value.as_memory;
             break;
         }
         case PIPE::TYPE::KEY: {
@@ -3254,6 +3223,7 @@ SOCKETS::ERROR SOCKETS::reserve(PIPE &pipe, size_t capacity) noexcept {
 
             break;
         }
+        case PIPE::TYPE::MEMORY_PTR:
         case PIPE::TYPE::JACK_PTR:
         case PIPE::TYPE::PTR: {
             void **new_data = new (std::nothrow) void* [capacity];
@@ -3266,25 +3236,6 @@ SOCKETS::ERROR SOCKETS::reserve(PIPE &pipe, size_t capacity) noexcept {
 
             if (old_data) {
                 std::memcpy(new_data, old_data, pipe.size * sizeof(void*));
-                delete [] old_data;
-            }
-
-            pipe.data = new_data;
-            pipe.capacity = capacity;
-
-            break;
-        }
-        case PIPE::TYPE::MEMORY: {
-            MEMORY *new_data = new (std::nothrow) MEMORY [capacity];
-
-            if (!new_data) {
-                return ERROR::OUT_OF_MEMORY;
-            }
-
-            MEMORY *old_data = (MEMORY *) pipe.data;
-
-            if (old_data) {
-                std::memcpy(new_data, old_data, pipe.size * sizeof(MEMORY));
                 delete [] old_data;
             }
 
@@ -3391,18 +3342,12 @@ SOCKETS::ERROR SOCKETS::append(const PIPE &src, PIPE &dst) noexcept {
             );
             break;
         }
+        case PIPE::TYPE::MEMORY_PTR:
         case PIPE::TYPE::JACK_PTR:
         case PIPE::TYPE::PTR: {
             std::memcpy(
                 static_cast<void **>(dst.data) + old_size, src.data,
                 count * sizeof(void*)
-            );
-            break;
-        }
-        case PIPE::TYPE::MEMORY: {
-            std::memcpy(
-                static_cast<MEMORY *>(dst.data) + old_size, src.data,
-                count * sizeof(MEMORY)
             );
             break;
         }
@@ -3445,14 +3390,10 @@ void SOCKETS::erase(PIPE &pipe, size_t index) noexcept {
             data[index] = data[pipe.size-1];
             break;
         }
+        case PIPE::TYPE::MEMORY_PTR:
         case PIPE::TYPE::JACK_PTR:
         case PIPE::TYPE::PTR: {
             void **data = (void **) pipe.data;
-            data[index] = data[pipe.size-1];
-            break;
-        }
-        case PIPE::TYPE::MEMORY: {
-            MEMORY *data = (MEMORY *) pipe.data;
             data[index] = data[pipe.size-1];
             break;
         }
@@ -3519,13 +3460,10 @@ SOCKETS::PIPE::ENTRY SOCKETS::get_entry(
             entry.as_int = static_cast<int *>(data)[index];
             break;
         }
+        case PIPE::TYPE::MEMORY_PTR:
         case PIPE::TYPE::JACK_PTR:
         case PIPE::TYPE::PTR: {
             entry.as_ptr = static_cast<void **>(data)[index];
-            break;
-        }
-        case PIPE::TYPE::MEMORY: {
-            entry.as_memory = static_cast<MEMORY *>(data)[index];
             break;
         }
         case PIPE::TYPE::KEY: {
@@ -3565,14 +3503,10 @@ void SOCKETS::destroy(PIPE &pipe) noexcept {
 
             break;
         }
+        case PIPE::TYPE::MEMORY_PTR:
         case PIPE::TYPE::JACK_PTR:
         case PIPE::TYPE::PTR: {
             if (pipe.data) delete [] ((void **) pipe.data);
-
-            break;
-        }
-        case PIPE::TYPE::MEMORY: {
-            if (pipe.data) delete [] ((MEMORY *) pipe.data);
 
             break;
         }
@@ -3590,91 +3524,94 @@ void SOCKETS::destroy(PIPE &pipe) noexcept {
 }
 
 const SOCKETS::MEMORY *SOCKETS::allocate(
-    size_t bytes, const void *copy
+    size_t byte_count, const void *copy
 ) noexcept {
-    MEMORY memory{
-        make_memory(new (std::nothrow) uint8_t[bytes](), bytes)
-    };
+    const size_t total_size = sizeof(MEMORY) + byte_count;
+    uint8_t *array = new (std::nothrow) uint8_t[total_size]();
 
-    if (memory.data == nullptr) {
+    if (!array) {
         return nullptr;
     }
 
-    size_t index = mempool.size;
+    MEMORY *memory = reinterpret_cast<MEMORY *>(array);
 
-    if (insert(mempool, make_pipe_entry(memory)) != ERROR::NONE) {
-        delete [] memory.data;
+    memory->size = byte_count;
+    memory->data = array + sizeof(MEMORY);
+    memory->next = allocated;
+    memory->prev = nullptr;
 
-        return nullptr;
+    if (allocated) {
+        allocated->prev = memory;
     }
+
+    allocated = memory;
 
     INDEX::ENTRY entry{
         insert(
-            INDEX::TYPE::MEM_ADDR_INDEX,
-            make_key(reinterpret_cast<uintptr_t>(memory.data)),
-            make_pipe_entry(index)
+            INDEX::TYPE::RESOURCE_MEMORY,
+            make_key(reinterpret_cast<uintptr_t>(memory->data)),
+            make_pipe_entry(memory)
         )
     };
 
     if (!entry.valid) {
-        delete [] memory.data;
+        delete [] array;
 
         return nullptr;
     }
 
     if (copy) {
-        std::memcpy(memory.data, copy, memory.size);
+        std::memcpy(memory->data, copy, memory->size);
     }
 
-    log("Allocated %lu byte%s.", memory.size, memory.size == 1 ? "" : "s");
+    log("Allocated %lu byte%s.", total_size, total_size == 1 ? "" : "s");
 
-    return &to_memory(mempool)[index];
+    return memory;
 }
 
 void SOCKETS::deallocate(const void *resource) noexcept {
-    size_t mempool_index = 0;
+    MEMORY *memory = nullptr;
 
     {
-        INDEX::ENTRY entry{
-            find(
-                INDEX::TYPE::MEM_ADDR_INDEX,
-                make_key(reinterpret_cast<uintptr_t>(resource))
-            )
-        };
+        const KEY key{make_key(reinterpret_cast<uintptr_t>(resource))};
+        INDEX::ENTRY entry{ find(INDEX::TYPE::RESOURCE_MEMORY, key) };
 
         if (!entry.valid) {
             die();
             return;
         }
 
-        mempool_index = to_uint64(get_value(entry));
-    }
+        memory = to_memory(get_value(entry));
 
-    MEMORY memory = to_memory(mempool)[mempool_index];
+        size_t erased = erase(
+            INDEX::TYPE::RESOURCE_MEMORY, key, {}, entry.index, 1
+        );
 
-    delete [] memory.data;
-
-    erase(mempool, mempool_index);
-
-    log("Deallocated %lu byte%s.", memory.size, memory.size == 1 ? "" : "s");
-
-    if (mempool.size > mempool_index) {
-        memory = to_memory(mempool)[mempool_index];
-
-        INDEX::ENTRY entry{
-            find(
-                INDEX::TYPE::MEM_ADDR_INDEX,
-                make_key(reinterpret_cast<uintptr_t>(memory.data))
-            )
-        };
-
-        if (!entry.valid) {
+        if (!erased) {
             die();
-            return;
         }
-
-        set_value(entry, make_pipe_entry(mempool_index));
     }
+
+    if (allocated == memory) {
+        allocated = memory->next;
+
+        if (allocated) {
+            allocated->prev = nullptr;
+        }
+    }
+    else {
+        memory->prev->next = memory->next;
+
+        if (memory->next) {
+            memory->next->prev = memory->prev;
+        }
+    }
+
+    const size_t total_size = sizeof(MEMORY) + memory->size;
+
+    delete [] reinterpret_cast<uint8_t *>(memory);
+
+    log("Deallocated %lu byte%s.", total_size, total_size == 1 ? "" : "s");
 }
 
 SOCKETS::jack_type *SOCKETS::new_jack(const jack_type *copy) noexcept {
@@ -3825,19 +3762,6 @@ constexpr struct SOCKETS::PIPE::ENTRY SOCKETS::make_pipe_entry(
 }
 
 constexpr struct SOCKETS::PIPE::ENTRY SOCKETS::make_pipe_entry(
-    MEMORY value
-) noexcept {
-    return
-#if __cplusplus <= 201703L
-    __extension__
-#endif
-    SOCKETS::PIPE::ENTRY{
-        .as_memory = value,
-        .type = PIPE::TYPE::MEMORY
-    };
-}
-
-constexpr struct SOCKETS::PIPE::ENTRY SOCKETS::make_pipe_entry(
     KEY value
 ) noexcept {
     return
@@ -3863,6 +3787,19 @@ constexpr struct SOCKETS::PIPE::ENTRY SOCKETS::make_pipe_entry(
     };
 }
 
+constexpr struct SOCKETS::PIPE::ENTRY SOCKETS::make_pipe_entry(
+    MEMORY *value
+) noexcept {
+    return
+#if __cplusplus <= 201703L
+    __extension__
+#endif
+    SOCKETS::PIPE::ENTRY{
+        .as_ptr = value,
+        .type = PIPE::TYPE::MEMORY_PTR
+    };
+}
+
 constexpr SOCKETS::KEY SOCKETS::make_key(uintptr_t val) noexcept {
     return
 #if __cplusplus <= 201703L
@@ -3875,19 +3812,6 @@ constexpr SOCKETS::KEY SOCKETS::make_key(uintptr_t val) noexcept {
 
 constexpr SOCKETS::KEY SOCKETS::make_key(EVENT val) noexcept {
     return make_key(static_cast<uintptr_t>(val));
-}
-
-constexpr struct SOCKETS::MEMORY SOCKETS::make_memory(
-    uint8_t *data, size_t size
-) noexcept {
-    return
-#if __cplusplus <= 201703L
-    __extension__
-#endif
-    SOCKETS::MEMORY{
-        .size = size,
-        .data = data
-    };
 }
 
 bool SOCKETS::is_listed(const addrinfo &info, const addrinfo *list) noexcept {
