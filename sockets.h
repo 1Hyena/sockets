@@ -385,6 +385,10 @@ class SOCKETS final {
     void       **to_ptr        (const PIPE &) const noexcept;
     epoll_event *to_epoll_event(const PIPE &) const noexcept;
 
+    void *to_ptr(PIPE::ENTRY &) const noexcept;
+    void *to_ptr(PIPE &, size_t index) const noexcept;
+    const void *to_ptr(const PIPE &, size_t index) const noexcept;
+
     const MEMORY *find_memory(const void *) const noexcept;
     MEMORY *find_memory(const void *) noexcept;
     const MEMORY &get_memory(const void *) const noexcept;
@@ -2867,6 +2871,46 @@ void **SOCKETS::to_ptr(const PIPE &pipe) const noexcept {
     return static_cast<void **>(pipe.data);
 }
 
+void *SOCKETS::to_ptr(PIPE::ENTRY &entry) const noexcept {
+    switch (entry.type) {
+        case PIPE::TYPE::PTR:
+        case PIPE::TYPE::MEMORY_PTR:
+        case PIPE::TYPE::JACK_PTR:    return &(entry.as_ptr);
+        case PIPE::TYPE::UINT8:       return &(entry.as_uint8);
+        case PIPE::TYPE::UINT64:      return &(entry.as_uint64);
+        case PIPE::TYPE::INT:         return &(entry.as_int);
+        case PIPE::TYPE::KEY:         return &(entry.as_key);
+        case PIPE::TYPE::EPOLL_EVENT: return &(entry.as_epoll_event);
+        case PIPE::TYPE::NONE:        break;
+    }
+
+    die();
+
+    return nullptr;
+}
+
+void *SOCKETS::to_ptr(PIPE &pipe, size_t index) const noexcept {
+    switch (pipe.type) {
+        case PIPE::TYPE::PTR:
+        case PIPE::TYPE::MEMORY_PTR:
+        case PIPE::TYPE::JACK_PTR:    return to_ptr(pipe) + index;
+        case PIPE::TYPE::UINT8:       return to_uint8(pipe) + index;
+        case PIPE::TYPE::UINT64:      return to_uint64(pipe) + index;
+        case PIPE::TYPE::INT:         return to_int(pipe) + index;
+        case PIPE::TYPE::KEY:         return to_key(pipe) + index;
+        case PIPE::TYPE::EPOLL_EVENT: return to_epoll_event(pipe) + index;
+        case PIPE::TYPE::NONE:        break;
+    }
+
+    die();
+
+    return nullptr;
+}
+
+const void *SOCKETS::to_ptr(const PIPE &pipe, size_t index) const noexcept {
+    return to_ptr(const_cast<PIPE&>(pipe), index);
+}
+
 bool SOCKETS::modify_epoll(int descriptor, uint32_t events) noexcept {
     JACK &epoll_jack = get_epoll_jack();
     int epoll_descriptor = epoll_jack.descriptor;
@@ -3055,9 +3099,9 @@ SOCKETS::INDEX::ENTRY SOCKETS::find(
         return {};
     }
 
-    PIPE &value_pipe = table.value;
+    PIPE &val_pipe = table.value;
 
-    if (value.type != PIPE::TYPE::NONE && value.type != value_pipe.type) {
+    if (value.type != PIPE::TYPE::NONE && value.type != val_pipe.type) {
         die();
     }
 
@@ -3069,72 +3113,9 @@ SOCKETS::INDEX::ENTRY SOCKETS::find(
             continue;
         }
 
-        if (value.type != PIPE::TYPE::NONE) {
-            switch (value_pipe.type) {
-                case PIPE::TYPE::UINT8: {
-                    const uint8_t *vd = (const uint8_t *) value_pipe.data;
-
-                    if (vd[i] != value.as_uint8) {
-                        continue;
-                    }
-
-                    break;
-                }
-                case PIPE::TYPE::UINT64: {
-                    const uint64_t *vd = (const uint64_t *) value_pipe.data;
-
-                    if (vd[i] != value.as_uint64) {
-                        continue;
-                    }
-
-                    break;
-                }
-                case PIPE::TYPE::INT: {
-                    const int *vd = (const int *) value_pipe.data;
-
-                    if (vd[i] != value.as_int) {
-                        continue;
-                    }
-
-                    break;
-                }
-                case PIPE::TYPE::MEMORY_PTR:
-                case PIPE::TYPE::JACK_PTR:
-                case PIPE::TYPE::PTR: {
-                    const void **vd = (const void **) value_pipe.data;
-
-                    if (vd[i] != value.as_ptr) {
-                        continue;
-                    }
-
-                    break;
-                }
-                case PIPE::TYPE::KEY: {
-                    const KEY *vd = (const KEY *) value_pipe.data;
-
-                    if (std::memcmp(vd+i, &value.as_key, sizeof(KEY))) {
-                        continue;
-                    }
-
-                    break;
-                }
-                case PIPE::TYPE::EPOLL_EVENT: {
-                    static constexpr const size_t epoll_ev_sz{
-                        sizeof(epoll_event)
-                    };
-
-                    const epoll_event *vd = (
-                        (const epoll_event *) value_pipe.data
-                    );
-
-                    if (std::memcmp(vd+i, &value.as_epoll_event, epoll_ev_sz)) {
-                        continue;
-                    }
-
-                    break;
-                }
-                case PIPE::TYPE::NONE: die(); continue;
-            }
+        if (value.type != PIPE::TYPE::NONE
+        && std::memcmp(to_ptr(val_pipe, i), to_ptr(value), size(value.type))) {
+            continue;
         }
 
         INDEX::ENTRY entry{};
@@ -3142,7 +3123,7 @@ SOCKETS::INDEX::ENTRY SOCKETS::find(
         entry.index = i;
         entry.valid = true;
         entry.key_pipe = &key_pipe;
-        entry.val_pipe = &value_pipe;
+        entry.val_pipe = &val_pipe;
 
         return entry;
     }
@@ -3234,75 +3215,10 @@ size_t SOCKETS::erase(
             continue;
         }
 
-        if (value.type != PIPE::TYPE::NONE) {
-            switch (val_pipe.type) {
-                case PIPE::TYPE::UINT8: {
-                    const uint8_t *vd = (const uint8_t *) val_pipe.data;
-
-                    if (vd[i] != value.as_uint8) {
-                        i = index.multimap ? i-1 : key_pipe.size;
-                        continue;
-                    }
-
-                    break;
-                }
-                case PIPE::TYPE::UINT64: {
-                    const uint64_t *vd = (const uint64_t *) val_pipe.data;
-
-                    if (vd[i] != value.as_uint64) {
-                        i = index.multimap ? i-1 : key_pipe.size;
-                        continue;
-                    }
-
-                    break;
-                }
-                case PIPE::TYPE::INT: {
-                    const int *vd = (const int *) val_pipe.data;
-
-                    if (vd[i] != value.as_int) {
-                        i = index.multimap ? i-1 : key_pipe.size;
-                        continue;
-                    }
-
-                    break;
-                }
-                case PIPE::TYPE::MEMORY_PTR:
-                case PIPE::TYPE::JACK_PTR:
-                case PIPE::TYPE::PTR: {
-                    const void **vd = (const void **) val_pipe.data;
-
-                    if (vd[i] != value.as_ptr) {
-                        i = index.multimap ? i-1 : key_pipe.size;
-                        continue;
-                    }
-
-                    break;
-                }
-                case PIPE::TYPE::KEY: {
-                    const KEY *vd = (const KEY *) val_pipe.data;
-
-                    if (std::memcmp(vd+i, &value.as_key, sizeof(KEY))) {
-                        i = index.multimap ? i-1 : key_pipe.size;
-                        continue;
-                    }
-
-                    break;
-                }
-                case PIPE::TYPE::EPOLL_EVENT: {
-                    static constexpr const size_t epoll_ev_sz{
-                        sizeof(epoll_event)
-                    };
-                    const epoll_event *vd = (const epoll_event *) val_pipe.data;
-
-                    if (std::memcmp(vd+i, &value.as_epoll_event, epoll_ev_sz)) {
-                        i = index.multimap ? i-1 : key_pipe.size;
-                        continue;
-                    }
-
-                    break;
-                }
-                case PIPE::TYPE::NONE: die(); continue;
-            }
+        if (value.type != PIPE::TYPE::NONE
+        && std::memcmp(to_ptr(val_pipe, i), to_ptr(value), size(value.type))) {
+            i = index.multimap ? i-1 : key_pipe.size;
+            continue;
         }
 
         erase(key_pipe, i);
@@ -3356,35 +3272,7 @@ void SOCKETS::replace(
         die();
     }
 
-    switch (pipe.type) {
-        case PIPE::TYPE::UINT8: {
-            to_uint8(pipe)[index] = value.as_uint8;
-            break;
-        }
-        case PIPE::TYPE::UINT64: {
-            to_uint64(pipe)[index] = value.as_uint64;
-            break;
-        }
-        case PIPE::TYPE::INT: {
-            to_int(pipe)[index] = value.as_int;
-            break;
-        }
-        case PIPE::TYPE::MEMORY_PTR:
-        case PIPE::TYPE::JACK_PTR:
-        case PIPE::TYPE::PTR: {
-            to_ptr(pipe)[index] = value.as_ptr;
-            break;
-        }
-        case PIPE::TYPE::KEY: {
-            to_key(pipe)[index] = value.as_key;
-            break;
-        }
-        case PIPE::TYPE::EPOLL_EVENT: {
-            to_epoll_event(pipe)[index] = value.as_epoll_event;
-            break;
-        }
-        case PIPE::TYPE::NONE: die();
-    }
+    std::memcpy(to_ptr(pipe, index), to_ptr(value), size(value.type));
 }
 
 SOCKETS::ERROR SOCKETS::insert(
@@ -3506,53 +3394,7 @@ SOCKETS::ERROR SOCKETS::append(const PIPE &src, PIPE &dst) noexcept {
         return ERROR::NONE;
     }
 
-    switch (dst.type) {
-        case PIPE::TYPE::UINT8: {
-            std::memcpy(
-                static_cast<uint8_t *>(dst.data) + old_size, src.data,
-                count * sizeof(uint8_t)
-            );
-            break;
-        }
-        case PIPE::TYPE::UINT64: {
-            std::memcpy(
-                static_cast<uint64_t *>(dst.data) + old_size, src.data,
-                count * sizeof(uint64_t)
-            );
-            break;
-        }
-        case PIPE::TYPE::INT: {
-            std::memcpy(
-                static_cast<int *>(dst.data) + old_size, src.data,
-                count * sizeof(int)
-            );
-            break;
-        }
-        case PIPE::TYPE::MEMORY_PTR:
-        case PIPE::TYPE::JACK_PTR:
-        case PIPE::TYPE::PTR: {
-            std::memcpy(
-                static_cast<void **>(dst.data) + old_size, src.data,
-                count * sizeof(void*)
-            );
-            break;
-        }
-        case PIPE::TYPE::KEY: {
-            std::memcpy(
-                static_cast<KEY *>(dst.data) + old_size, src.data,
-                count * sizeof(KEY)
-            );
-            break;
-        }
-        case PIPE::TYPE::EPOLL_EVENT: {
-            std::memcpy(
-                static_cast<epoll_event *>(dst.data) + old_size, src.data,
-                count * sizeof(epoll_event)
-            );
-            break;
-        }
-        case PIPE::TYPE::NONE: return die();
-    }
+    std::memcpy(to_ptr(dst, old_size), to_ptr(src, 0), count * size(dst.type));
 
     return ERROR::NONE;
 }
@@ -3567,41 +3409,9 @@ void SOCKETS::erase(PIPE &pipe, size_t index) noexcept {
         return;
     }
 
-    switch (pipe.type) {
-        case PIPE::TYPE::UINT8: {
-            uint8_t *data = (uint8_t *) pipe.data;
-            data[index] = data[pipe.size-1];
-            break;
-        }
-        case PIPE::TYPE::UINT64: {
-            uint64_t *data = (uint64_t *) pipe.data;
-            data[index] = data[pipe.size-1];
-            break;
-        }
-        case PIPE::TYPE::INT: {
-            int *data = (int *) pipe.data;
-            data[index] = data[pipe.size-1];
-            break;
-        }
-        case PIPE::TYPE::MEMORY_PTR:
-        case PIPE::TYPE::JACK_PTR:
-        case PIPE::TYPE::PTR: {
-            void **data = (void **) pipe.data;
-            data[index] = data[pipe.size-1];
-            break;
-        }
-        case PIPE::TYPE::KEY: {
-            KEY *data = (KEY *) pipe.data;
-            data[index] = data[pipe.size-1];
-            break;
-        }
-        case PIPE::TYPE::EPOLL_EVENT: {
-            epoll_event *data = (epoll_event *) pipe.data;
-            data[index] = data[pipe.size-1];
-            break;
-        }
-        case PIPE::TYPE::NONE: die(); return;
-    }
+    std::memcpy(
+        to_ptr(pipe, index), to_ptr(pipe, pipe.size - 1), size(pipe.type)
+    );
 
     --pipe.size;
 }
@@ -3640,40 +3450,11 @@ SOCKETS::PIPE::ENTRY SOCKETS::get_entry(
         return {};
     }
 
-    void *data = pipe.data;
     PIPE::ENTRY entry{};
 
     entry.type = pipe.type;
 
-    switch (pipe.type) {
-        case PIPE::TYPE::UINT8: {
-            entry.as_uint8 = static_cast<uint8_t *>(data)[index];
-            break;
-        }
-        case PIPE::TYPE::UINT64: {
-            entry.as_uint64 = static_cast<uint64_t *>(data)[index];
-            break;
-        }
-        case PIPE::TYPE::INT: {
-            entry.as_int = static_cast<int *>(data)[index];
-            break;
-        }
-        case PIPE::TYPE::MEMORY_PTR:
-        case PIPE::TYPE::JACK_PTR:
-        case PIPE::TYPE::PTR: {
-            entry.as_ptr = static_cast<void **>(data)[index];
-            break;
-        }
-        case PIPE::TYPE::KEY: {
-            entry.as_key = static_cast<KEY *>(data)[index];
-            break;
-        }
-        case PIPE::TYPE::EPOLL_EVENT: {
-            entry.as_epoll_event = static_cast<epoll_event *>(data)[index];
-            break;
-        }
-        case PIPE::TYPE::NONE: die(); break;
-    }
+    std::memcpy(to_ptr(entry), to_ptr(pipe, index), size(entry.type));
 
     return entry;
 }
