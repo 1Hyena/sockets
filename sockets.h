@@ -127,8 +127,6 @@ class SOCKETS final {
     void disconnect(int descriptor) noexcept;
 
     private:
-    static constexpr const int EPOLL_MAX_EVENTS = 64;
-
     enum class BUFFER : uint8_t {
         GENERIC_INT,
         GENERIC_BYTE,
@@ -217,7 +215,7 @@ class SOCKETS final {
         uint32_t event_lookup[
             static_cast<size_t>(EVENT::MAX_EVENTS) // TODO: improve type?
         ];
-        epoll_event *epoll_events;
+        PIPE epoll_ev;
         PIPE incoming;
         PIPE outgoing;
         char host[NI_MAXHOST]; // TODO: store in a PIPE instead
@@ -403,9 +401,6 @@ class SOCKETS final {
         const char *file =__builtin_FILE(), int line =__builtin_LINE()
     ) const noexcept;
     ERROR die(
-        const char *file =__builtin_FILE(), int line =__builtin_LINE()
-    ) const noexcept;
-    void out_of_memory(
         const char *file =__builtin_FILE(), int line =__builtin_LINE()
     ) const noexcept;
 
@@ -1254,10 +1249,6 @@ SOCKETS::ERROR SOCKETS::die(const char *file, int line) const noexcept {
     return ERROR::UNDEFINED_BEHAVIOR;
 }
 
-void SOCKETS::out_of_memory(const char *file, int line) const noexcept {
-    log("out of memory (%s:%d)", file, line);
-}
-
 SOCKETS::ERROR SOCKETS::handle_close(JACK &jack) noexcept {
     int descriptor = jack.descriptor;
 
@@ -1341,10 +1332,16 @@ SOCKETS::ERROR SOCKETS::handle_epoll(
 
     bitset.unhandled_events = false;
 
-    epoll_event *events = epoll_jack.epoll_events;
+    epoll_event *events = to_epoll_event(epoll_jack.epoll_ev);
+
+    int maxevents{
+        epoll_jack.epoll_ev.size > std::numeric_limits<int>::max() ? (
+            std::numeric_limits<int>::max()
+        ) : static_cast<int>(epoll_jack.epoll_ev.size)
+    };
 
     int pending = epoll_pwait(
-        epoll_jack.descriptor, events, EPOLL_MAX_EVENTS, timeout, &sigset_none
+        epoll_jack.descriptor, events, maxevents, timeout, &sigset_none
     );
 
     if (pending == -1) {
@@ -1368,6 +1365,36 @@ SOCKETS::ERROR SOCKETS::handle_epoll(
     }
     else if (pending == 0) {
         bitset.timeout = true;
+    }
+    else if (pending == maxevents) {
+        // Increase the epoll event buffer size.
+        size_t old_size = epoll_jack.epoll_ev.size;
+
+        ERROR error{
+            insert(
+                epoll_jack.epoll_ev, make_pipe_entry(PIPE::TYPE::EPOLL_EVENT)
+            )
+        };
+
+        epoll_jack.epoll_ev.size = epoll_jack.epoll_ev.capacity;
+
+        size_t new_size = epoll_jack.epoll_ev.size;
+
+        if (error != ERROR::NONE) {
+            log(
+                "%s: %s (%s:%d)", __FUNCTION__, get_code(error),
+                __FILE__, __LINE__
+            );
+        }
+
+        if (old_size != new_size) {
+            log("Epoll event buffer size has been changed to %lu.", new_size);
+        }
+
+        events = to_epoll_event(
+            // Reallocation may have happened.
+            epoll_jack.epoll_ev
+        );
     }
 
     for (int i=0; i<pending; ++i) {
@@ -2004,28 +2031,37 @@ int SOCKETS::create_epoll() noexcept {
         return NO_DESCRIPTOR;
     }
 
-    ERROR error{capture(make_jack(epoll_descriptor, NO_DESCRIPTOR, 0))};
+    {
+        ERROR error{capture(make_jack(epoll_descriptor, NO_DESCRIPTOR, 0))};
 
-    if (error != ERROR::NONE) {
-        if (!close_and_deinit(epoll_descriptor)) {
-            release(find_jack(epoll_descriptor));
+        if (error != ERROR::NONE) {
+            if (!close_and_deinit(epoll_descriptor)) {
+                release(find_jack(epoll_descriptor));
+            }
+
+            return NO_DESCRIPTOR;
         }
-
-        return NO_DESCRIPTOR;
     }
 
     JACK &jack = get_jack(epoll_descriptor);
 
-    jack.epoll_events = new (std::nothrow) epoll_event [EPOLL_MAX_EVENTS]();
+    {
+        ERROR error{ reserve(jack.epoll_ev, 1) };
 
-    if (jack.epoll_events == nullptr) {
-        out_of_memory();
+        if (error != ERROR::NONE) {
+            log(
+                "%s: %s (%s:%d)", __FUNCTION__, get_code(error),
+                __FILE__, __LINE__
+            );
 
-        if (!close_and_deinit(epoll_descriptor)) {
-            release(&jack);
+            if (!close_and_deinit(epoll_descriptor)) {
+                release(&jack);
+            }
+
+            return NO_DESCRIPTOR;
         }
 
-        return NO_DESCRIPTOR;
+        jack.epoll_ev.size = jack.epoll_ev.capacity;
     }
 
     set_event(jack, EVENT::EPOLL);
@@ -2487,10 +2523,7 @@ void SOCKETS::release(JACK *jack) noexcept {
     }
 
     // Then, we free the dynamically allocated memory.
-    if (jack->epoll_events) {
-        delete [] jack->epoll_events;
-    }
-
+    destroy(jack->epoll_ev);
     destroy(jack->incoming);
     destroy(jack->outgoing);
 
@@ -3727,7 +3760,7 @@ constexpr SOCKETS::JACK SOCKETS::make_jack(
 #endif
     JACK jack{
         .event_lookup = {},
-        .epoll_events = nullptr,
+        .epoll_ev     = { make_pipe(PIPE::TYPE::EPOLL_EVENT) },
         .incoming     = { make_pipe(PIPE::TYPE::UINT8) },
         .outgoing     = { make_pipe(PIPE::TYPE::UINT8) },
         .host         = {'\0'},
