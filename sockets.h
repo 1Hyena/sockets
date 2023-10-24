@@ -218,8 +218,8 @@ class SOCKETS final {
         PIPE epoll_ev;
         PIPE incoming;
         PIPE outgoing;
-        char host[NI_MAXHOST]; // TODO: store in a PIPE instead
-        char port[NI_MAXSERV]; // TODO: store in a PIPE instead
+        PIPE host;
+        PIPE port;
         int descriptor; // TODO: typedef descriptor_type and use it instead
         int parent;
         int group;
@@ -377,6 +377,7 @@ class SOCKETS final {
     uint64_t  to_uint64(PIPE::ENTRY) const noexcept;
 
     int         *to_int        (const PIPE &) const noexcept;
+    char        *to_char       (const PIPE &) const noexcept;
     uint8_t     *to_uint8      (const PIPE &) const noexcept;
     uint64_t    *to_uint64     (const PIPE &) const noexcept;
     KEY         *to_key        (const PIPE &) const noexcept;
@@ -809,12 +810,12 @@ int SOCKETS::get_listener(int descriptor) const noexcept {
 
 const char *SOCKETS::get_host(int descriptor) const noexcept {
     const JACK *jack = find_jack(descriptor);
-    return jack ? jack->host : "";
+    return jack && jack->host.size ? to_char(jack->host) : "";
 }
 
 const char *SOCKETS::get_port(int descriptor) const noexcept {
     const JACK *jack = find_jack(descriptor);
-    return jack ? jack->port : "";
+    return jack && jack->port.size ? to_char(jack->port) : "";
 }
 
 void SOCKETS::freeze(int descriptor) noexcept {
@@ -1399,7 +1400,7 @@ SOCKETS::ERROR SOCKETS::handle_epoll(
         }
 
         if (old_size != new_size) {
-            log("Epoll event buffer size has been changed to %lu.", new_size);
+            log("changed epoll event buffer size to %lu", new_size);
         }
 
         events = to_epoll_event(
@@ -1749,17 +1750,19 @@ SOCKETS::ERROR SOCKETS::handle_accept(JACK &jack) noexcept {
             release(find_jack(client_descriptor));
         }
 
-        return ERROR::FORBIDDEN_CONDITION;
+        set_event(jack, EVENT::ACCEPT);
+        return error;
     }
 
     JACK &client_jack = get_jack(client_descriptor);
 
+    char host[NI_MAXHOST];
+    char port[NI_MAXSERV];
+
     int retval = getnameinfo(
         &in_addr, in_len,
-        client_jack.host,
-        socklen_t(std::extent<decltype(client_jack.host)>::value),
-        client_jack.port,
-        socklen_t(std::extent<decltype(client_jack.port)>::value),
+        host, socklen_t(std::extent<decltype(host)>::value),
+        port, socklen_t(std::extent<decltype(port)>::value),
         NI_NUMERICHOST|NI_NUMERICSERV
     );
 
@@ -1769,8 +1772,50 @@ SOCKETS::ERROR SOCKETS::handle_accept(JACK &jack) noexcept {
             __FILE__, __LINE__
         );
 
-        client_jack.host[0] = '\0';
-        client_jack.port[0] = '\0';
+        if (!close_and_deinit(client_descriptor)) {
+            release(find_jack(client_descriptor));
+        }
+
+        return ERROR::FORBIDDEN_CONDITION;
+    }
+    else {
+        const PIPE host_wrapper{
+            make_pipe(
+                reinterpret_cast<const uint8_t *>(host), std::strlen(host) + 1
+            )
+        };
+
+        {
+            ERROR error{ copy(host_wrapper, client_jack.host) };
+
+            if (error != ERROR::NONE) {
+                if (!close_and_deinit(client_descriptor)) {
+                    release(find_jack(client_descriptor));
+                }
+
+                set_event(jack, EVENT::ACCEPT);
+                return error;
+            }
+        }
+
+        const PIPE port_wrapper{
+            make_pipe(
+                reinterpret_cast<const uint8_t *>(port), std::strlen(port) + 1
+            )
+        };
+
+        {
+            ERROR error{ copy(port_wrapper, client_jack.port) };
+
+            if (error != ERROR::NONE) {
+                if (!close_and_deinit(client_descriptor)) {
+                    release(find_jack(client_descriptor));
+                }
+
+                set_event(jack, EVENT::ACCEPT);
+                return error;
+            }
+        }
     }
 
     epoll_event event{
@@ -1799,6 +1844,8 @@ SOCKETS::ERROR SOCKETS::handle_accept(JACK &jack) noexcept {
         if (!close_and_deinit(client_descriptor)) {
             release(&client_jack);
         }
+
+        return ERROR::FORBIDDEN_CONDITION;
     }
     else {
         set_event(client_jack, EVENT::CONNECTION);
@@ -1838,16 +1885,40 @@ int SOCKETS::connect(
 
     JACK &jack = get_jack(descriptor);
 
-    if (jack.host[0] == '\0') {
-        size_t buflen = std::extent<decltype(jack.host)>::value;
-        strncpy(jack.host, host, buflen - 1);
-        jack.host[buflen - 1] = '\0';
+    const PIPE host_wrapper{
+        make_pipe(
+            reinterpret_cast<const uint8_t *>(host), std::strlen(host) + 1
+        )
+    };
+
+    {
+        ERROR error{ copy(host_wrapper, jack.host) };
+
+        if (error != ERROR::NONE) {
+            if (!close_and_deinit(descriptor)) {
+                release(find_jack(descriptor));
+            }
+
+            return NO_DESCRIPTOR; // TODO: return error instead
+        }
     }
 
-    if (jack.port[0] == '\0') {
-        size_t buflen = std::extent<decltype(jack.port)>::value;
-        strncpy(jack.port, port, buflen - 1);
-        jack.port[buflen - 1] = '\0';
+    const PIPE port_wrapper{
+        make_pipe(
+            reinterpret_cast<const uint8_t *>(port), std::strlen(port) + 1
+        )
+    };
+
+    {
+        ERROR error{ copy(port_wrapper, jack.port) };
+
+        if (error != ERROR::NONE) {
+            if (!close_and_deinit(descriptor)) {
+                release(find_jack(descriptor));
+            }
+
+            return NO_DESCRIPTOR; // TODO: return error instead
+        }
     }
 
     if (!bind_to_epoll(descriptor, epoll_descriptor)) {
@@ -1997,23 +2068,74 @@ int SOCKETS::listen(
                 retval, __FILE__, __LINE__
             );
         }
+
+        if (!close_and_deinit(descriptor)) {
+            release(find_jack(descriptor));
+        }
+
+        return NO_DESCRIPTOR;
     }
-    else {
-        retval = getnameinfo(
-            &in_addr, in_len,
-            jack.host, socklen_t(std::extent<decltype(jack.host)>::value),
-            jack.port, socklen_t(std::extent<decltype(jack.port)>::value),
-            NI_NUMERICHOST|NI_NUMERICSERV
+
+    char host_buf[NI_MAXHOST];
+    char port_buf[NI_MAXSERV];
+
+    retval = getnameinfo(
+        &in_addr, in_len,
+        host_buf, socklen_t(std::extent<decltype(host_buf)>::value),
+        port_buf, socklen_t(std::extent<decltype(port_buf)>::value),
+        NI_NUMERICHOST|NI_NUMERICSERV
+    );
+
+    if (retval != 0) {
+        log(
+            "getnameinfo: %s (%s:%d)", gai_strerror(retval),
+            __FILE__, __LINE__
         );
 
-        if (retval != 0) {
-            log(
-                "getnameinfo: %s (%s:%d)", gai_strerror(retval),
-                __FILE__, __LINE__
-            );
+        if (!close_and_deinit(descriptor)) {
+            release(find_jack(descriptor));
+        }
 
-            jack.host[0] = '\0';
-            jack.port[0] = '\0';
+        return NO_DESCRIPTOR;
+    }
+
+    const PIPE host_wrapper{
+        make_pipe(
+            reinterpret_cast<const uint8_t *>(host_buf),
+            std::strlen(host_buf) + 1
+        )
+    };
+
+    {
+        ERROR error{ copy(host_wrapper, jack.host) };
+
+        if (error != ERROR::NONE) {
+            if (!close_and_deinit(descriptor)) {
+                release(find_jack(descriptor));
+            }
+
+            // TODO: return error;
+            return NO_DESCRIPTOR;
+        }
+    }
+
+    const PIPE port_wrapper{
+        make_pipe(
+            reinterpret_cast<const uint8_t *>(port_buf),
+            std::strlen(port_buf) + 1
+        )
+    };
+
+    {
+        ERROR error{ copy(port_wrapper, jack.port) };
+
+        if (error != ERROR::NONE) {
+            if (!close_and_deinit(descriptor)) {
+                release(find_jack(descriptor));
+            }
+
+            // TODO: return error;
+            return NO_DESCRIPTOR;
         }
     }
 
@@ -2537,6 +2659,8 @@ void SOCKETS::release(JACK *jack) noexcept {
     destroy(jack->epoll_ev);
     destroy(jack->incoming);
     destroy(jack->outgoing);
+    destroy(jack->host);
+    destroy(jack->port);
 
     if (jack->blacklist) {
         freeaddrinfo(jack->blacklist);
@@ -2695,6 +2819,12 @@ uint8_t *SOCKETS::to_uint8(const PIPE &pipe) const noexcept {
     if (pipe.type != PIPE::TYPE::UINT8) die();
 
     return static_cast<uint8_t *>(pipe.data);
+}
+
+char *SOCKETS::to_char(const PIPE &pipe) const noexcept {
+    if (pipe.type != PIPE::TYPE::UINT8) die();
+
+    return static_cast<char *>(pipe.data);
 }
 
 uint64_t *SOCKETS::to_uint64(const PIPE &pipe) const noexcept {
@@ -3785,8 +3915,8 @@ constexpr SOCKETS::JACK SOCKETS::make_jack(
         .epoll_ev     = { make_pipe(PIPE::TYPE::EPOLL_EVENT) },
         .incoming     = { make_pipe(PIPE::TYPE::UINT8) },
         .outgoing     = { make_pipe(PIPE::TYPE::UINT8) },
-        .host         = {'\0'},
-        .port         = {'\0'},
+        .host         = { make_pipe(PIPE::TYPE::UINT8) },
+        .port         = { make_pipe(PIPE::TYPE::UINT8) },
         .descriptor   = descriptor,
         .parent       = parent,
         .group        = group,
