@@ -3352,6 +3352,7 @@ SOCKETS::ERROR SOCKETS::swap(PIPE &first, PIPE &second) noexcept {
     std::swap(first.capacity, second.capacity);
     std::swap(first.size,     second.size);
     std::swap(first.data,     second.data);
+    std::swap(first.memory,   second.memory);
 
     return ERROR::NONE;
 }
