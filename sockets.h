@@ -414,7 +414,12 @@ class SOCKETS final {
     void (*log_callback)(const char *text) noexcept;
     INDEX indices[static_cast<size_t>(INDEX::TYPE::MAX_TYPES)];
     PIPE  buffers[static_cast<size_t>(BUFFER::MAX_BUFFERS)];
-    MEMORY *allocated;
+
+    struct mempool_type {
+        MEMORY *list;
+        size_t usage;
+    } mempool;
+
     EVENT handled;
     ERROR errored;
 
@@ -434,13 +439,17 @@ bool operator!(SOCKETS::ERROR error) noexcept {
 }
 
 SOCKETS::SOCKETS() noexcept :
-    log_callback(nullptr), indices{}, buffers{}, allocated(nullptr), handled{},
+    log_callback(nullptr), indices{}, buffers{}, mempool{}, handled{},
     errored{}, bitset{} {
 }
 
 SOCKETS::~SOCKETS() {
-    // TODO: check for memory leaks by comparing total number of bytes allocated
-    // to the total number of bytes deallocated
+    if (mempool.usage) {
+        log(
+            "memory usage remains at %lu byte%s (leak?)",
+            mempool.usage, mempool.usage == 1 ? "" : "s"
+        );
+    }
 
     for (INDEX &index : indices) {
         if (index.type == INDEX::TYPE::NONE) {
@@ -478,11 +487,11 @@ void SOCKETS::clear() noexcept {
         index.type = INDEX::TYPE::NONE;
     }
 
-    if (allocated) {
+    if (mempool.list) {
         bug(); // We should have already explicitly deallocated all memory.
 
-        while (allocated) {
-            deallocate(*allocated);
+        while (mempool.list) {
+            deallocate(*mempool.list);
         }
     }
 
@@ -537,6 +546,8 @@ bool SOCKETS::init() noexcept {
 
         return false;
     }
+
+    mempool.usage = 0;
 
     for (INDEX &index : indices) {
         index.type = static_cast<INDEX::TYPE>(&index - &indices[0]);
@@ -3639,19 +3650,21 @@ SOCKETS::MEMORY *SOCKETS::allocate(size_t byte_count) noexcept {
         return nullptr;
     }
 
+    mempool.usage += total_size;
+
     MEMORY *memory = reinterpret_cast<MEMORY *>(array);
 
     memory->size = byte_count;
     memory->data = byte_count ? (array + sizeof(MEMORY)) : nullptr;
-    memory->next = allocated;
+    memory->next = mempool.list;
     memory->prev = nullptr;
     memory->indexed = false;
 
-    if (allocated) {
-        allocated->prev = memory;
+    if (mempool.list) {
+        mempool.list->prev = memory;
     }
 
-    allocated = memory;
+    mempool.list = memory;
 
     log("Allocated %lu byte%s.", total_size, total_size == 1 ? "" : "s");
 
@@ -3707,11 +3720,11 @@ void SOCKETS::deallocate(MEMORY &memory) noexcept {
         }
     }
 
-    if (allocated == &memory) {
-        allocated = memory.next;
+    if (mempool.list == &memory) {
+        mempool.list = memory.next;
 
-        if (allocated) {
-            allocated->prev = nullptr;
+        if (mempool.list) {
+            mempool.list->prev = nullptr;
         }
     }
     else {
@@ -3725,6 +3738,14 @@ void SOCKETS::deallocate(MEMORY &memory) noexcept {
     const size_t total_size = sizeof(MEMORY) + memory.size;
 
     delete [] reinterpret_cast<uint8_t *>(&memory);
+
+    if (total_size <= mempool.usage) {
+        mempool.usage -= total_size;
+    }
+    else {
+        bug();
+        mempool.usage = 0;
+    }
 
     log("Deallocated %lu byte%s.", total_size, total_size == 1 ? "" : "s");
 }
