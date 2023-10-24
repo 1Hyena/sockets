@@ -276,7 +276,8 @@ class SOCKETS final {
         const addrinfo &info, const addrinfo *list
     ) noexcept;
 
-    inline static EVENT next(EVENT) noexcept;
+    inline static constexpr EVENT next(EVENT) noexcept;
+    inline static constexpr size_t size(PIPE::TYPE) noexcept;
 
     ERROR handle_close (JACK &) noexcept;
     ERROR handle_epoll (JACK &, int timeout) noexcept;
@@ -3421,38 +3422,7 @@ SOCKETS::ERROR SOCKETS::reserve(PIPE &pipe, size_t capacity) noexcept {
         return ERROR::NONE;
     }
 
-    size_t element_size = 0;
-
-    switch (pipe.type) {
-        case PIPE::TYPE::UINT8: {
-            element_size = sizeof(uint8_t); // TODO: pipe.type -> size function
-            break;
-        }
-        case PIPE::TYPE::UINT64: {
-            element_size = sizeof(uint64_t);
-            break;
-        }
-        case PIPE::TYPE::INT: {
-            element_size = sizeof(int);
-            break;
-        }
-        case PIPE::TYPE::MEMORY_PTR:
-        case PIPE::TYPE::JACK_PTR:
-        case PIPE::TYPE::PTR: {
-            element_size = sizeof(void*);
-            break;
-        }
-        case PIPE::TYPE::KEY: {
-            element_size = sizeof(KEY);
-            break;
-        }
-        case PIPE::TYPE::EPOLL_EVENT: {
-            element_size = sizeof(epoll_event);
-            break;
-        }
-        case PIPE::TYPE::NONE: return die();
-    }
-
+    size_t element_size = size(pipe.type);
     size_t byte_count = element_size * capacity;
 
     if (!byte_count) {
@@ -4154,12 +4124,28 @@ const char *SOCKETS::get_code(ERROR error) noexcept {
     return "UNKNOWN_ERROR";
 }
 
-SOCKETS::EVENT SOCKETS::next(EVENT event_type) noexcept {
+constexpr SOCKETS::EVENT SOCKETS::next(EVENT event_type) noexcept {
     return static_cast<EVENT>(
         (static_cast<size_t>(event_type) + 1) % (
             static_cast<size_t>(EVENT::MAX_EVENTS)
         )
     );
+}
+
+constexpr size_t SOCKETS::size(PIPE::TYPE type) noexcept {
+    switch (type) {
+        case PIPE::TYPE::UINT8:       return sizeof(uint8_t);
+        case PIPE::TYPE::UINT64:      return sizeof(uint64_t);
+        case PIPE::TYPE::INT:         return sizeof(int);
+        case PIPE::TYPE::PTR:         return sizeof(void *);
+        case PIPE::TYPE::JACK_PTR:    return sizeof(JACK *);
+        case PIPE::TYPE::MEMORY_PTR:  return sizeof(MEMORY *);
+        case PIPE::TYPE::KEY:         return sizeof(KEY);
+        case PIPE::TYPE::EPOLL_EVENT: return sizeof(epoll_event);
+        case PIPE::TYPE::NONE:        break;
+    }
+
+    return 0;
 }
 
 #endif
