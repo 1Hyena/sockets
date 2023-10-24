@@ -267,6 +267,11 @@ class SOCKETS final {
     inline static constexpr PIPE::ENTRY make_pipe_entry(JACK *    ) noexcept;
     inline static constexpr PIPE::ENTRY make_pipe_entry(MEMORY *  ) noexcept;
 
+    inline static constexpr epoll_data_t make_epoll_data(int fd) noexcept;
+    inline static constexpr epoll_event make_epoll_event(
+        int descriptor, uint32_t events
+    ) noexcept;
+
     inline static bool is_listed(
         const addrinfo &info, const addrinfo *list
     ) noexcept;
@@ -1331,7 +1336,7 @@ SOCKETS::ERROR SOCKETS::handle_epoll(
 
     bitset.unhandled_events = false;
 
-    epoll_event *events = &(epoll_jack.epoll_events[1]);
+    epoll_event *events = epoll_jack.epoll_events;
 
     int pending = epoll_pwait(
         epoll_jack.descriptor, events, EPOLL_MAX_EVENTS, timeout, &sigset_none
@@ -1725,13 +1730,12 @@ SOCKETS::ERROR SOCKETS::handle_accept(JACK &jack) noexcept {
         client_jack.port[0] = '\0';
     }
 
-    epoll_event *event = &(epoll_jack.epoll_events[0]);
-
-    event->data.fd = client_descriptor;
-    event->events = EPOLLIN|EPOLLET|EPOLLRDHUP;
+    epoll_event event{
+        make_epoll_event(client_descriptor, EPOLLIN|EPOLLET|EPOLLRDHUP)
+    };
 
     retval = epoll_ctl(
-        epoll_descriptor, EPOLL_CTL_ADD, client_descriptor, event
+        epoll_descriptor, EPOLL_CTL_ADD, client_descriptor, &event
     );
 
     if (retval != 0) {
@@ -2007,7 +2011,7 @@ int SOCKETS::create_epoll() noexcept {
 
     JACK &jack = get_jack(epoll_descriptor);
 
-    jack.epoll_events = new (std::nothrow) epoll_event [1+EPOLL_MAX_EVENTS]();
+    jack.epoll_events = new (std::nothrow) epoll_event [EPOLL_MAX_EVENTS]();
 
     if (jack.epoll_events == nullptr) {
         out_of_memory();
@@ -2027,14 +2031,12 @@ int SOCKETS::create_epoll() noexcept {
 bool SOCKETS::bind_to_epoll(int descriptor, int epoll_descriptor) noexcept {
     if (descriptor == NO_DESCRIPTOR) return NO_DESCRIPTOR;
 
-    JACK &jack = get_jack(epoll_descriptor);
-    epoll_event *event = &(jack.epoll_events[0]);
-
-    event->data.fd = descriptor;
-    event->events = EPOLLIN|EPOLLET|EPOLLRDHUP;
+    epoll_event event{
+        make_epoll_event(descriptor, EPOLLIN|EPOLLET|EPOLLRDHUP)
+    };
 
     int retval{
-        epoll_ctl(epoll_descriptor, EPOLL_CTL_ADD, descriptor, event)
+        epoll_ctl(epoll_descriptor, EPOLL_CTL_ADD, descriptor, &event)
     };
 
     if (retval != 0) {
@@ -2655,13 +2657,10 @@ SOCKETS::KEY *SOCKETS::to_key(const PIPE &pipe) const noexcept {
 bool SOCKETS::modify_epoll(int descriptor, uint32_t events) noexcept {
     JACK &epoll_jack = get_epoll_jack();
     int epoll_descriptor = epoll_jack.descriptor;
-    epoll_event *event = &(epoll_jack.epoll_events[0]);
-
-    event->data.fd = descriptor;
-    event->events = events;
+    epoll_event event{ make_epoll_event(descriptor, events) };
 
     int retval = epoll_ctl(
-        epoll_descriptor, EPOLL_CTL_MOD, descriptor, event
+        epoll_descriptor, EPOLL_CTL_MOD, descriptor, &event
     );
 
     if (retval != 0) {
@@ -3810,6 +3809,29 @@ constexpr SOCKETS::KEY SOCKETS::make_key(uintptr_t val) noexcept {
 
 constexpr SOCKETS::KEY SOCKETS::make_key(EVENT val) noexcept {
     return make_key(static_cast<uintptr_t>(val));
+}
+
+constexpr epoll_data_t SOCKETS::make_epoll_data(int descriptor) noexcept {
+    return
+#if __cplusplus <= 201703L
+    __extension__
+#endif
+    epoll_data_t{
+        .fd = descriptor
+    };
+}
+
+constexpr struct epoll_event SOCKETS::make_epoll_event(
+    int descriptor, uint32_t events
+) noexcept {
+    return
+#if __cplusplus <= 201703L
+    __extension__
+#endif
+    epoll_event{
+        .events = events,
+        .data   = make_epoll_data(descriptor)
+    };
 }
 
 bool SOCKETS::is_listed(const addrinfo &info, const addrinfo *list) noexcept {
