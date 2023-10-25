@@ -33,7 +33,6 @@
 #include <cstdarg>
 #include <cerrno>
 #include <cstdio>
-#include <climits>
 
 #include <sys/epoll.h>
 #include <netdb.h>
@@ -128,6 +127,10 @@ class SOCKETS final {
     void disconnect(int descriptor) noexcept;
 
     private:
+    static constexpr const size_t BITS_PER_BYTE{
+        std::numeric_limits<unsigned char>::digits
+    };
+
     enum class BUFFER : uint8_t {
         GENERIC_INT,
         GENERIC_BYTE,
@@ -434,7 +437,7 @@ class SOCKETS final {
     PIPE  buffers[static_cast<size_t>(BUFFER::MAX_BUFFERS)];
 
     struct MEMPOOL {
-        MEMORY *free[sizeof(size_t) * CHAR_BIT];
+        MEMORY *free[sizeof(size_t) * BITS_PER_BYTE];
         MEMORY *list;
         size_t usage;
         size_t top;
@@ -4052,15 +4055,15 @@ int SOCKETS::clz(unsigned long long x) noexcept {
 }
 
 unsigned int SOCKETS::next_pow2(unsigned int x) noexcept {
-    return x <= 1 ? 1 : 1 << ((sizeof(x) * CHAR_BIT) - clz(x - 1));
+    return x <= 1 ? 1 : 1 << ((sizeof(x) * BITS_PER_BYTE) - clz(x - 1));
 }
 
 unsigned long SOCKETS::next_pow2(unsigned long x) noexcept {
-    return x <= 1 ? 1 : 1 << ((sizeof(x) * CHAR_BIT) - clz(x - 1));
+    return x <= 1 ? 1 : 1 << ((sizeof(x) * BITS_PER_BYTE) - clz(x - 1));
 }
 
 unsigned long long SOCKETS::next_pow2(unsigned long long x) noexcept {
-    return x <= 1 ? 1 : 1 << ((sizeof(x) * CHAR_BIT) - clz(x - 1));
+    return x <= 1 ? 1 : 1 << ((sizeof(x) * BITS_PER_BYTE) - clz(x - 1));
 }
 
 #endif
