@@ -33,6 +33,7 @@
 #include <cstdarg>
 #include <cerrno>
 #include <cstdio>
+#include <climits>
 
 #include <sys/epoll.h>
 #include <netdb.h>
@@ -139,11 +140,12 @@ class SOCKETS final {
     };
 
     struct MEMORY {
-        size_t   size;
-        uint8_t *data;
-        MEMORY  *next;
-        MEMORY  *prev;
-        bool indexed:1;
+        size_t     size;
+        uint8_t   *data;
+        MEMORY    *next;
+        MEMORY    *prev;
+        bool  indexed:1;
+        bool recycled:1;
     };
 
     struct KEY {
@@ -226,7 +228,7 @@ class SOCKETS final {
         int ai_family;
         int ai_flags;
         struct addrinfo *blacklist;
-        struct bitset_type {
+        struct BITSET {
             bool frozen:1;
             bool connecting:1;
             bool may_shutdown:1;
@@ -278,6 +280,13 @@ class SOCKETS final {
 
     inline static constexpr EVENT next(EVENT) noexcept;
     inline static constexpr size_t size(PIPE::TYPE) noexcept;
+    inline static constexpr auto fmt_bytes(size_t) noexcept;
+    inline static int clz(unsigned int) noexcept;
+    inline static int clz(unsigned long) noexcept;
+    inline static int clz(unsigned long long) noexcept;
+    inline static unsigned int       next_pow2(unsigned int) noexcept;
+    inline static unsigned long      next_pow2(unsigned long) noexcept;
+    inline static unsigned long long next_pow2(unsigned long long) noexcept;
 
     ERROR handle_close (JACK &) noexcept;
     ERROR handle_epoll (JACK &, int timeout) noexcept;
@@ -389,6 +398,8 @@ class SOCKETS final {
     void *to_ptr(PIPE &, size_t index) const noexcept;
     const void *to_ptr(const PIPE &, size_t index) const noexcept;
 
+    void enlist(MEMORY &, MEMORY *&list) noexcept;
+    void unlist(MEMORY &, MEMORY *&list) noexcept;
     const MEMORY *find_memory(const void *) const noexcept;
     MEMORY *find_memory(const void *) noexcept;
     const MEMORY &get_memory(const void *) const noexcept;
@@ -398,6 +409,7 @@ class SOCKETS final {
     ) noexcept;
     MEMORY *allocate(size_t byte_count) noexcept;
     void deallocate(MEMORY &) noexcept;
+    void recycle(MEMORY &) noexcept;
     JACK *new_jack(const JACK *copy =nullptr) noexcept;
 
     void log(
@@ -421,15 +433,17 @@ class SOCKETS final {
     INDEX indices[static_cast<size_t>(INDEX::TYPE::MAX_TYPES)];
     PIPE  buffers[static_cast<size_t>(BUFFER::MAX_BUFFERS)];
 
-    struct mempool_type {
+    struct MEMPOOL {
+        MEMORY *free[sizeof(size_t) * CHAR_BIT];
         MEMORY *list;
         size_t usage;
+        size_t top;
     } mempool;
 
     EVENT handled;
     ERROR errored;
 
-    struct bitset_type {
+    struct BITSET {
         bool out_of_memory:1;
         bool unhandled_events:1;
         bool timeout:1;
@@ -501,6 +515,12 @@ void SOCKETS::clear() noexcept {
         }
     }
 
+    for (MEMORY *&free : mempool.free) {
+        while (free) {
+            deallocate(*free);
+        }
+    }
+
     bitset = {};
 }
 
@@ -554,6 +574,7 @@ bool SOCKETS::init() noexcept {
     }
 
     mempool.usage = 0;
+    mempool.top = 0;
 
     for (INDEX &index : indices) {
         index.type = static_cast<INDEX::TYPE>(&index - &indices[0]);
@@ -575,7 +596,7 @@ bool SOCKETS::init() noexcept {
             case INDEX::TYPE::NONE: continue;
             case INDEX::TYPE::EVENT_DESCRIPTOR:
             case INDEX::TYPE::DESCRIPTOR_JACK:
-            case INDEX::TYPE::RESOURCE_MEMORY:
+            case INDEX::TYPE::RESOURCE_MEMORY: // TODO: use better bucket count
             case INDEX::TYPE::GROUP_SIZE: {
                 index.table = new (std::nothrow) INDEX::TABLE [index.buckets]();
                 break;
@@ -870,7 +891,49 @@ SOCKETS::ERROR SOCKETS::last_error() noexcept {
     return errored;
 }
 
+constexpr auto SOCKETS::fmt_bytes(uint64_t b) noexcept {
+    struct format_type{
+        double value;
+        const char *unit;
+    };
+
+    return (
+        b > (uint64_t{1} << 40) ? (
+            format_type{
+                double((long double)(b) / (long double)(uint64_t{1} << 40)),
+                "TiB"
+            }
+        ) :
+        b > (uint64_t{1} << 30) ? (
+            format_type{
+                double((long double)(b) / (long double)(uint64_t{1} << 30)),
+                "GiB"
+            }
+        ) :
+        b > (uint64_t{1} << 20) ? (
+            format_type{
+                double((long double)(b) / (long double)(uint64_t{1} << 20)),
+                "MiB"
+            }
+        ) : (
+            format_type{
+                double((long double)(b) / (long double)(uint64_t{1} << 10)),
+                "KiB"
+            }
+        )
+    );
+}
+
 SOCKETS::ERROR SOCKETS::next_error(int timeout) noexcept {
+    if (mempool.usage > mempool.top) {
+        mempool.top = mempool.usage;
+
+        log(
+            "top memory usage is %.3f %s",
+            fmt_bytes(mempool.top).value, fmt_bytes(mempool.top).unit
+        );
+    }
+
     if (bitset.out_of_memory) {
         bitset.out_of_memory = false;
         return err(ERROR::OUT_OF_MEMORY);
@@ -2635,7 +2698,7 @@ SOCKETS::ERROR SOCKETS::capture(const JACK &copy) noexcept {
     };
 
     if (!entry.valid) {
-        deallocate(get_memory(jack));
+        recycle(get_memory(jack));
 
         return entry.error;
     }
@@ -2655,12 +2718,10 @@ void SOCKETS::release(JACK *jack) noexcept {
         return bug();
     }
 
-    // First, let's free the events.
     for (auto &ev : jack->event_lookup) {
         rem_event(*jack, static_cast<EVENT>(&ev - &(jack->event_lookup[0])));
     }
 
-    // Then, we free the dynamically allocated memory.
     destroy(jack->epoll_ev);
     destroy(jack->incoming);
     destroy(jack->outgoing);
@@ -2673,14 +2734,13 @@ void SOCKETS::release(JACK *jack) noexcept {
 
     rem_group(jack->descriptor);
 
-    // Finally, we remove the jack.
     size_t erased{
         erase(INDEX::TYPE::DESCRIPTOR_JACK, make_key(jack->descriptor))
     };
 
     if (!erased) die();
 
-    deallocate(get_memory(jack)); // TODO: recycle instead
+    recycle(get_memory(jack));
 }
 
 const SOCKETS::JACK *SOCKETS::find_jack(
@@ -3318,13 +3378,20 @@ SOCKETS::ERROR SOCKETS::reserve(PIPE &pipe, size_t capacity) noexcept {
         return ERROR::FORBIDDEN_CONDITION;
     }
 
+    MEMORY *old_memory = pipe.memory;
+
+    if (old_memory && old_memory->size / element_size >= capacity) {
+        pipe.capacity = capacity;
+
+        return ERROR::NONE;
+    }
+
     MEMORY *new_memory = allocate(byte_count);
 
     if (!new_memory) {
         return ERROR::OUT_OF_MEMORY;
     }
 
-    MEMORY *old_memory = pipe.memory;
     void *old_data = pipe.data;
     void *new_data = new_memory->data;
 
@@ -3333,7 +3400,7 @@ SOCKETS::ERROR SOCKETS::reserve(PIPE &pipe, size_t capacity) noexcept {
     }
 
     if (old_memory) {
-        deallocate(*old_memory);
+        recycle(*old_memory);
     }
 
     pipe.memory = new_memory;
@@ -3471,13 +3538,63 @@ SOCKETS::PIPE::ENTRY SOCKETS::get_value(INDEX::ENTRY entry) const noexcept {
 
 void SOCKETS::destroy(PIPE &pipe) noexcept {
     if (pipe.memory) {
-        deallocate(*pipe.memory);
+        recycle(*pipe.memory);
         pipe.memory = nullptr;
     }
 
     pipe.data = nullptr;
     pipe.capacity = 0;
     pipe.size = 0;
+}
+
+void SOCKETS::enlist(MEMORY &memory, MEMORY *&list) noexcept {
+    if (memory.next || memory.prev) die();
+
+    memory.next = list;
+
+    if (list) {
+        list->prev = &memory;
+    }
+
+    list = &memory;
+}
+
+void SOCKETS::unlist(MEMORY &memory, MEMORY *&list) noexcept {
+    if (memory.indexed) {
+        const KEY key{make_key(reinterpret_cast<uintptr_t>(memory.data))};
+        INDEX::ENTRY entry{ find(INDEX::TYPE::RESOURCE_MEMORY, key) };
+
+        size_t erased{
+            entry.valid ? (
+                erase(INDEX::TYPE::RESOURCE_MEMORY, key, {}, entry.index, 1)
+            ) : 0
+        };
+
+        if (!erased) {
+            die();
+            return;
+        }
+
+        memory.indexed = false;
+    }
+
+    if (list == &memory) {
+        list = memory.next;
+
+        if (list) {
+            list->prev = nullptr;
+        }
+    }
+    else {
+        memory.prev->next = memory.next;
+
+        if (memory.next) {
+            memory.next->prev = memory.prev;
+        }
+    }
+
+    memory.next = nullptr;
+    memory.prev = nullptr;
 }
 
 const SOCKETS::MEMORY *SOCKETS::find_memory(
@@ -3523,31 +3640,43 @@ SOCKETS::MEMORY &SOCKETS::get_memory(const void *resource) noexcept {
     return *memory;
 }
 
-SOCKETS::MEMORY *SOCKETS::allocate(size_t byte_count) noexcept {
-    const size_t total_size = sizeof(MEMORY) + byte_count;
-    uint8_t *array = new (std::nothrow) uint8_t[total_size];
+SOCKETS::MEMORY *SOCKETS::allocate(size_t requested_byte_count) noexcept {
+    size_t byte_count = next_pow2(requested_byte_count);
 
-    if (!array) {
-        return nullptr;
+    const size_t total_size = sizeof(MEMORY) + byte_count;
+
+    MEMORY *memory = nullptr;
+    uint8_t *array = nullptr;
+
+    MEMORY *&free = mempool.free[clz(byte_count)];
+
+    if (free) {
+        memory = free;
+        unlist(*memory, free);
+        array = reinterpret_cast<uint8_t*>(memory);
     }
 
-    mempool.usage += total_size;
+    if (!memory) {
+        array = new (std::nothrow) uint8_t[total_size];
 
-    MEMORY *memory = reinterpret_cast<MEMORY *>(array);
+        if (!array) {
+            return nullptr;
+        }
 
-    memory->size = byte_count;
-    memory->data = byte_count ? (array + sizeof(MEMORY)) : nullptr;
-    memory->next = mempool.list;
+        mempool.usage += total_size;
+
+        memory = reinterpret_cast<MEMORY *>(array);
+
+        memory->size = byte_count;
+        memory->data = byte_count ? (array + sizeof(MEMORY)) : nullptr;
+    }
+
+    memory->next = nullptr;
     memory->prev = nullptr;
     memory->indexed = false;
+    memory->recycled = false;
 
-    if (mempool.list) {
-        mempool.list->prev = memory;
-    }
-
-    mempool.list = memory;
-
-    log("Allocated %lu byte%s.", total_size, total_size == 1 ? "" : "s");
+    enlist(*memory, mempool.list);
 
     return memory;
 }
@@ -3577,7 +3706,7 @@ SOCKETS::MEMORY *SOCKETS::allocate_and_index(
         memory->indexed = true;
     }
     else {
-        deallocate(*memory);
+        recycle(*memory);
         return nullptr;
     }
 
@@ -3585,35 +3714,12 @@ SOCKETS::MEMORY *SOCKETS::allocate_and_index(
 }
 
 void SOCKETS::deallocate(MEMORY &memory) noexcept {
-    if (memory.indexed) {
-        const KEY key{make_key(reinterpret_cast<uintptr_t>(memory.data))};
-        INDEX::ENTRY entry{ find(INDEX::TYPE::RESOURCE_MEMORY, key) };
-
-        size_t erased{
-            entry.valid ? (
-                erase(INDEX::TYPE::RESOURCE_MEMORY, key, {}, entry.index, 1)
-            ) : 0
-        };
-
-        if (!erased) {
-            die();
-            return;
-        }
-    }
-
-    if (mempool.list == &memory) {
-        mempool.list = memory.next;
-
-        if (mempool.list) {
-            mempool.list->prev = nullptr;
-        }
+    if (memory.recycled) {
+        MEMORY *&free = mempool.free[clz(memory.size)];
+        unlist(memory, free);
     }
     else {
-        memory.prev->next = memory.next;
-
-        if (memory.next) {
-            memory.next->prev = memory.prev;
-        }
+        unlist(memory, mempool.list);
     }
 
     const size_t total_size = sizeof(MEMORY) + memory.size;
@@ -3627,18 +3733,22 @@ void SOCKETS::deallocate(MEMORY &memory) noexcept {
         bug();
         mempool.usage = 0;
     }
+}
 
-    log("Deallocated %lu byte%s.", total_size, total_size == 1 ? "" : "s");
+void SOCKETS::recycle(MEMORY &memory) noexcept {
+    if (memory.recycled) {
+        return;
+    }
+
+    unlist(memory, mempool.list);
+    enlist(memory, mempool.free[clz(memory.size)]);
+
+    memory.recycled = true;
 }
 
 SOCKETS::JACK *SOCKETS::new_jack(const JACK *copy) noexcept {
     MEMORY *mem = allocate_and_index(sizeof(JACK), copy);
-
-    if (mem) {
-        return (JACK *) mem->data;
-    }
-
-    return nullptr;
+    return mem ? reinterpret_cast<JACK *>(mem->data) : nullptr;
 }
 
 void SOCKETS::dump(const char *file, int line) const noexcept {
@@ -3927,6 +4037,30 @@ constexpr size_t SOCKETS::size(PIPE::TYPE type) noexcept {
     }
 
     return 0;
+}
+
+int SOCKETS::clz(unsigned int x) noexcept {
+    return __builtin_clz(x);
+}
+
+int SOCKETS::clz(unsigned long x) noexcept {
+    return __builtin_clzl(x);
+}
+
+int SOCKETS::clz(unsigned long long x) noexcept {
+    return __builtin_clzll(x);
+}
+
+unsigned int SOCKETS::next_pow2(unsigned int x) noexcept {
+    return x <= 1 ? 1 : 1 << ((sizeof(x) * CHAR_BIT) - clz(x - 1));
+}
+
+unsigned long SOCKETS::next_pow2(unsigned long x) noexcept {
+    return x <= 1 ? 1 : 1 << ((sizeof(x) * CHAR_BIT) - clz(x - 1));
+}
+
+unsigned long long SOCKETS::next_pow2(unsigned long long x) noexcept {
+    return x <= 1 ? 1 : 1 << ((sizeof(x) * CHAR_BIT) - clz(x - 1));
 }
 
 #endif
