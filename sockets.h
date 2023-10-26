@@ -39,7 +39,7 @@
 
 class SOCKETS final {
     public:
-    static constexpr const char *VERSION = "1.0";
+    static constexpr const char *const VERSION = "1.0";
     static constexpr const int NO_DESCRIPTOR = -1; // TODO: get rid of this
 
     enum class ERROR : uint8_t {
@@ -426,9 +426,6 @@ class SOCKETS final {
     ) const noexcept;
 
     void clear() noexcept;
-    void dump(
-        const char *file =__builtin_FILE(), int line =__builtin_LINE()
-    ) const noexcept;
 
     ERROR err(ERROR) noexcept;
 
@@ -712,7 +709,7 @@ bool SOCKETS::deinit() noexcept {
 
     for (size_t bucket=0; bucket<descriptor_jack.buckets; ++bucket) {
         while (descriptor_jack.table[bucket].key.size) {
-            JACK *jack{
+            JACK *const jack{
                 to_jack(
                     get_last(descriptor_jack.table[bucket].value)
                 )
@@ -762,7 +759,7 @@ struct SOCKETS::ALERT SOCKETS::next_alert() noexcept {
 }
 
 int SOCKETS::next_connection() noexcept {
-    JACK *jack = find_jack(EVENT::CONNECTION);
+    JACK *const jack = find_jack(EVENT::CONNECTION);
 
     if (jack) {
         rem_event(*jack, EVENT::CONNECTION);
@@ -783,7 +780,7 @@ int SOCKETS::next_disconnection() noexcept {
         return NO_DESCRIPTOR;
     }
 
-    JACK *jack = find_jack(EVENT::DISCONNECTION);
+    JACK *const jack = find_jack(EVENT::DISCONNECTION);
 
     if (jack) {
         if (set_event(*jack, EVENT::CLOSE) == ERROR::NONE) {
@@ -797,7 +794,7 @@ int SOCKETS::next_disconnection() noexcept {
 }
 
 int SOCKETS::next_incoming() noexcept {
-    JACK *jack = find_jack(EVENT::INCOMING);
+    JACK *const jack = find_jack(EVENT::INCOMING);
 
     if (jack) {
         rem_event(*jack, EVENT::INCOMING);
@@ -813,12 +810,12 @@ bool SOCKETS::is_listener(const JACK &jack) const noexcept {
 }
 
 bool SOCKETS::is_listener(int descriptor) const noexcept {
-    const JACK *jack = find_jack(descriptor);
+    const JACK *const jack = find_jack(descriptor);
     return jack ? is_listener(*jack) : false;
 }
 
 int SOCKETS::get_group(int descriptor) const noexcept {
-    const JACK *jack = find_jack(descriptor);
+    const JACK *const jack = find_jack(descriptor);
     return jack ? jack->group : 0;
 }
 
@@ -833,22 +830,22 @@ size_t SOCKETS::get_group_size(int group) const noexcept {
 }
 
 int SOCKETS::get_listener(int descriptor) const noexcept {
-    const JACK *jack = find_jack(descriptor);
+    const JACK *const jack = find_jack(descriptor);
     return jack ? jack->parent : NO_DESCRIPTOR;
 }
 
 const char *SOCKETS::get_host(int descriptor) const noexcept {
-    const JACK *jack = find_jack(descriptor);
+    const JACK *const jack = find_jack(descriptor);
     return jack && jack->host.size ? to_char(jack->host) : "";
 }
 
 const char *SOCKETS::get_port(int descriptor) const noexcept {
-    const JACK *jack = find_jack(descriptor);
+    const JACK *const jack = find_jack(descriptor);
     return jack && jack->port.size ? to_char(jack->port) : "";
 }
 
 void SOCKETS::freeze(int descriptor) noexcept {
-    JACK *jack = find_jack(descriptor);
+    JACK *const jack = find_jack(descriptor);
 
     if (jack) {
         jack->bitset.frozen = true;
@@ -856,7 +853,7 @@ void SOCKETS::freeze(int descriptor) noexcept {
 }
 
 void SOCKETS::unfreeze(int descriptor) noexcept {
-    JACK *jack = find_jack(descriptor);
+    JACK *const jack = find_jack(descriptor);
 
     if (jack) {
         if (!has_event(*jack, EVENT::DISCONNECTION)
@@ -867,7 +864,7 @@ void SOCKETS::unfreeze(int descriptor) noexcept {
 }
 
 bool SOCKETS::is_frozen(int descriptor) const noexcept {
-    const JACK *jack = find_jack(descriptor);
+    const JACK *const jack = find_jack(descriptor);
 
     return jack ? jack->bitset.frozen : false;
 }
@@ -966,7 +963,7 @@ SOCKETS::ERROR SOCKETS::next_error(int timeout) noexcept {
             default: break;
         }
 
-        const PIPE *event_subscribers = find_descriptors(event);
+        const PIPE *const event_subscribers = find_descriptors(event);
 
         if (!event_subscribers) continue;
 
@@ -978,7 +975,7 @@ SOCKETS::ERROR SOCKETS::next_error(int timeout) noexcept {
 
         for (size_t j=0, sz=descriptor_buffer.size; j<sz; ++j) {
             int d = to_int(get_entry(descriptor_buffer, j));
-            JACK *jack = find_jack(d);
+            JACK *const jack = find_jack(d);
 
             if (jack == nullptr) continue;
 
@@ -1060,7 +1057,7 @@ SOCKETS::ERROR SOCKETS::next_error(int timeout) noexcept {
 }
 
 size_t SOCKETS::incoming(int descriptor) const noexcept {
-    const JACK *jack = find_jack(descriptor);
+    const JACK *const jack = find_jack(descriptor);
 
     if (jack) {
         return jack->incoming.size;
@@ -1072,7 +1069,7 @@ size_t SOCKETS::incoming(int descriptor) const noexcept {
 }
 
 size_t SOCKETS::outgoing(int descriptor) const noexcept {
-    const JACK *jack = find_jack(descriptor);
+    const JACK *const jack = find_jack(descriptor);
 
     if (jack) {
         return jack->outgoing.size;
@@ -1086,7 +1083,7 @@ size_t SOCKETS::outgoing(int descriptor) const noexcept {
 size_t SOCKETS::read(int descriptor, void *buf, size_t count) noexcept {
     if (!count) return 0;
 
-    JACK *jack = find_jack(descriptor);
+    JACK *const jack = find_jack(descriptor);
 
     if (!jack) {
         bug();
@@ -1116,7 +1113,7 @@ size_t SOCKETS::read(int descriptor, void *buf, size_t count) noexcept {
 }
 
 const char *SOCKETS::read(int descriptor) noexcept {
-    JACK *jack = find_jack(descriptor);
+    JACK *const jack = find_jack(descriptor);
 
     if (!jack || jack->incoming.size == 0) {
         return "";
@@ -1144,7 +1141,7 @@ const char *SOCKETS::read(int descriptor) noexcept {
 SOCKETS::ERROR SOCKETS::write(
     int descriptor, const void *buf, size_t count
 ) noexcept {
-    JACK *jack = find_jack(descriptor);
+    JACK *const jack = find_jack(descriptor);
 
     if (!jack) {
         bug();
@@ -1220,7 +1217,7 @@ SOCKETS::ERROR SOCKETS::writef(int descriptor, const char *fmt, ...) noexcept {
         return error;
     }
 
-    heapbuf = (char *) buffer.data;
+    heapbuf = static_cast<char *>(buffer.data);
 
     va_start(args, fmt);
     retval = vsnprintf(heapbuf, heapbuf_sz, fmt, args);
@@ -1285,7 +1282,7 @@ void SOCKETS::log(const char *fmt, ...) const noexcept {
             bufptr = new (std::nothrow) char[bufsz];
 
             if (!bufptr) {
-                static constexpr const char *OOM = "Out Of Memory!";
+                static constexpr const char *const OOM = "Out Of Memory!";
 
                 if (log_callback) {
                     log_callback(OOM);
@@ -1484,7 +1481,7 @@ SOCKETS::ERROR SOCKETS::handle_epoll(
 
             if (events[i].events & EPOLLERR) {
                 int retval = getsockopt(
-                    d, SOL_SOCKET, SO_ERROR, (void *) &socket_error,
+                    d, SOL_SOCKET, SO_ERROR, static_cast<void*>(&socket_error),
                     &socket_errlen
                 );
 
@@ -1576,7 +1573,7 @@ SOCKETS::ERROR SOCKETS::handle_read(JACK &jack) noexcept {
 
     for (size_t total_count = 0;;) {
         ssize_t count;
-        char *buf = (char *) buffer.data;
+        char *const buf = (char *) buffer.data;
         const size_t buf_sz = buffer.capacity;
 
         if (!buf_sz) {
@@ -1657,7 +1654,7 @@ SOCKETS::ERROR SOCKETS::handle_write(JACK &jack) noexcept {
         return ERROR::NONE;
     }
 
-    const unsigned char *bytes = to_uint8(outgoing);
+    const unsigned char *const bytes = to_uint8(outgoing);
     size_t length = outgoing.size;
 
     bool try_again_later = true;
@@ -2051,7 +2048,7 @@ void SOCKETS::terminate(int descriptor, const char *file, int line) noexcept {
         for (size_t bucket=0; bucket < index.buckets; ++bucket) {
             // TODO: optimize this (use a special index for child-parent rels?)
             for (size_t i=0; i<index.table[bucket].value.size; ++i) {
-                JACK *rec{
+                JACK *const rec{
                     to_jack(get_entry(index.table[bucket].value, i))
                 };
 
@@ -2114,7 +2111,9 @@ int SOCKETS::listen(
     struct sockaddr in_addr;
     socklen_t in_len = sizeof(in_addr);
 
-    retval = getsockname(descriptor, (struct sockaddr *)&in_addr, &in_len);
+    retval = getsockname(
+        descriptor, static_cast<struct sockaddr *>(&in_addr), &in_len
+    );
 
     if (retval != 0) {
         if (retval == -1) {
@@ -2375,7 +2374,7 @@ int SOCKETS::open_and_init(
 
             retval = setsockopt(
                 descriptor, SOL_SOCKET, SO_REUSEADDR,
-                (const void *) &optval, sizeof(optval)
+                static_cast<const void *>(&optval), sizeof(optval)
             );
 
             if (retval != 0) {
@@ -2593,7 +2592,7 @@ size_t SOCKETS::close_and_deinit(int descriptor) noexcept {
             for (size_t bucket=0; bucket < index.buckets; ++bucket) {
                 // TODO: optimize this (use a special index?)
                 for (size_t i=0; i<index.table[bucket].value.size; ++i) {
-                    JACK *rec{
+                    JACK *const rec{
                         to_jack(get_entry(index.table[bucket].value, i))
                     };
 
@@ -2678,7 +2677,7 @@ SOCKETS::ERROR SOCKETS::capture(const JACK &copy) noexcept {
     int descriptor = copy.descriptor;
     int group = copy.group;
 
-    JACK *jack = new_jack(&copy);
+    JACK *const jack = new_jack(&copy);
 
     if (!jack) {
         return ERROR::OUT_OF_MEMORY;
@@ -2787,7 +2786,7 @@ SOCKETS::JACK *SOCKETS::find_epoll_jack() noexcept {
 }
 
 const SOCKETS::JACK &SOCKETS::get_jack(int descriptor) const noexcept {
-    const JACK *rec = find_jack(descriptor);
+    const JACK *const rec = find_jack(descriptor);
 
     if (!rec) die();
 
@@ -2795,7 +2794,7 @@ const SOCKETS::JACK &SOCKETS::get_jack(int descriptor) const noexcept {
 }
 
 SOCKETS::JACK &SOCKETS::get_jack(int descriptor) noexcept {
-    JACK *rec = find_jack(descriptor);
+    JACK *const rec = find_jack(descriptor);
 
     if (!rec) die();
 
@@ -2803,7 +2802,7 @@ SOCKETS::JACK &SOCKETS::get_jack(int descriptor) noexcept {
 }
 
 const SOCKETS::JACK &SOCKETS::get_epoll_jack() const noexcept {
-    const JACK *rec = find_epoll_jack();
+    const JACK *const rec = find_epoll_jack();
 
     if (!rec) die();
 
@@ -2811,7 +2810,7 @@ const SOCKETS::JACK &SOCKETS::get_epoll_jack() const noexcept {
 }
 
 SOCKETS::JACK &SOCKETS::get_epoll_jack() noexcept {
-    JACK *rec = find_epoll_jack();
+    JACK *const rec = find_epoll_jack();
 
     if (!rec) die();
 
@@ -3147,7 +3146,7 @@ SOCKETS::INDEX::ENTRY SOCKETS::find(
         die();
     }
 
-    const KEY *data = to_key(key_pipe);
+    const KEY *const data = to_key(key_pipe);
 
     if (!data) {
         return {};
@@ -3241,7 +3240,7 @@ size_t SOCKETS::erase(
 
     if (key_pipe.type != PIPE::TYPE::KEY) die();
 
-    KEY *key_data = to_key(key_pipe);
+    KEY *const key_data = to_key(key_pipe);
 
     size_t erased = 0;
 
@@ -3299,7 +3298,7 @@ size_t SOCKETS::count(INDEX::TYPE index_type, KEY key) const noexcept {
     if (index.buckets > 0) {
         const INDEX::TABLE &table = index.table[key.value % index.buckets];
         const PIPE &pipe = table.key;
-        const KEY *data = to_key(pipe);
+        const KEY *const data = to_key(pipe);
 
         if (data) {
             for (size_t i=0, sz=pipe.size; i<sz; ++i) {
@@ -3372,7 +3371,7 @@ SOCKETS::ERROR SOCKETS::reserve(PIPE &pipe, size_t capacity) noexcept {
         return ERROR::FORBIDDEN_CONDITION;
     }
 
-    MEMORY *old_memory = pipe.memory;
+    MEMORY *const old_memory = pipe.memory;
 
     if (old_memory && old_memory->size / element_size >= capacity) {
         pipe.capacity = capacity;
@@ -3380,14 +3379,14 @@ SOCKETS::ERROR SOCKETS::reserve(PIPE &pipe, size_t capacity) noexcept {
         return ERROR::NONE;
     }
 
-    MEMORY *new_memory = allocate(byte_count);
+    MEMORY *const new_memory = allocate(byte_count);
 
     if (!new_memory) {
         return ERROR::OUT_OF_MEMORY;
     }
 
-    void *old_data = pipe.data;
-    void *new_data = new_memory->data;
+    void *const old_data = pipe.data;
+    void *const new_data = new_memory->data;
 
     if (old_data) {
         std::memcpy(new_data, old_data, pipe.size * element_size);
@@ -3619,7 +3618,7 @@ SOCKETS::MEMORY *SOCKETS::find_memory(const void *resource) noexcept {
 const SOCKETS::MEMORY &SOCKETS::get_memory(
     const void *resource
 ) const noexcept {
-    const MEMORY *memory = find_memory(resource);
+    const MEMORY *const memory = find_memory(resource);
 
     if (!memory) die();
 
@@ -3627,7 +3626,7 @@ const SOCKETS::MEMORY &SOCKETS::get_memory(
 }
 
 SOCKETS::MEMORY &SOCKETS::get_memory(const void *resource) noexcept {
-    MEMORY *memory = find_memory(resource);
+    MEMORY *const memory = find_memory(resource);
 
     if (!memory) die();
 
@@ -3741,22 +3740,8 @@ void SOCKETS::recycle(MEMORY &memory) noexcept {
 }
 
 SOCKETS::JACK *SOCKETS::new_jack(const JACK *copy) noexcept {
-    MEMORY *mem = allocate_and_index(sizeof(JACK), copy);
+    MEMORY *const mem = allocate_and_index(sizeof(JACK), copy);
     return mem ? reinterpret_cast<JACK *>(mem->data) : nullptr;
-}
-
-void SOCKETS::dump(const char *file, int line) const noexcept {
-    for (size_t i=0; i<size_t(EVENT::MAX_EVENTS); ++i) {
-        const PIPE *found = find_descriptors(static_cast<EVENT>(i));
-
-        if (found && found->size) {
-            printf("event[%lu] of %s, line %d:\n", i, file, line);
-            for (size_t j=0; j<found->size; ++j) {
-                printf("%d ", ((int *) found->data)[j]);
-            }
-            printf("\n");
-        }
-    }
 }
 
 constexpr SOCKETS::JACK SOCKETS::make_jack(
@@ -3984,8 +3969,8 @@ bool SOCKETS::is_listed(const addrinfo &info, const addrinfo *list) noexcept {
             continue;
         }
 
-        const void *first = (const void *) info.ai_addr;
-        const void *second = (const void *) next->ai_addr;
+        const void *const first = static_cast<const void *>(info.ai_addr);
+        const void *const second = static_cast<const void *>(next->ai_addr);
 
         if (std::memcmp(first, second, (size_t) info.ai_addrlen) != 0) {
             continue;
