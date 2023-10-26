@@ -3109,7 +3109,7 @@ void SOCKETS::rem_event(JACK &jack, EVENT event) noexcept {
     };
 
     if (entry.valid && entry.index == pos) {
-        int other_descriptor = ((int *) entry.val_pipe->data)[entry.index];
+        int other_descriptor = to_int(get_value(entry));
         get_jack(other_descriptor).event_lookup[index] = pos;
     }
 
