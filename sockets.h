@@ -894,36 +894,27 @@ SOCKETS::ERROR SOCKETS::last_error() noexcept {
     return errored;
 }
 
-constexpr auto SOCKETS::fmt_bytes(uint64_t b) noexcept {
+constexpr auto SOCKETS::fmt_bytes(size_t b) noexcept {
+    constexpr const size_t one{1};
     struct format_type{
         double value;
         const char *unit;
     };
 
     return (
-        b > (uint64_t{1} << 40) ? (
+        (sizeof(b) * BITS_PER_BYTE > 40) && b > (one << 40) ? (
             format_type{
-                double((long double)(b) / (long double)(uint64_t{1} << 40)),
-                "TiB"
+                double((long double)(b) / (long double)(one << 40)), "TiB"
             }
         ) :
-        b > (uint64_t{1} << 30) ? (
+        (sizeof(b) * BITS_PER_BYTE > 30) && b > (one << 30) ? (
             format_type{
-                double((long double)(b) / (long double)(uint64_t{1} << 30)),
-                "GiB"
+                double((long double)(b) / (long double)(one << 30)), "GiB"
             }
         ) :
-        b > (uint64_t{1} << 20) ? (
-            format_type{
-                double((long double)(b) / (long double)(uint64_t{1} << 20)),
-                "MiB"
-            }
-        ) : (
-            format_type{
-                double((long double)(b) / (long double)(uint64_t{1} << 10)),
-                "KiB"
-            }
-        )
+        (sizeof(b) * BITS_PER_BYTE > 20) && b > (one << 20) ? (
+            format_type{ double(b) / double(one << 20), "MiB" }
+        ) : format_type{ double(b) / double(one << 10), "KiB" }
     );
 }
 
