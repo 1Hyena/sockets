@@ -36,6 +36,7 @@
 
 #include <sys/epoll.h>
 #include <netdb.h>
+#include <unistd.h>
 
 class SOCKETS final {
     public:
@@ -1405,8 +1406,12 @@ SOCKETS::ERROR SOCKETS::handle_epoll(
 
     epoll_event *events = to_epoll_event(epoll_jack.epoll_ev);
 
+    static constexpr const unsigned int max_int{
+        static_cast<unsigned int>(std::numeric_limits<int>::max())
+    };
+
     int maxevents{
-        epoll_jack.epoll_ev.size > std::numeric_limits<int>::max() ? (
+        epoll_jack.epoll_ev.size > max_int ? (
             std::numeric_limits<int>::max()
         ) : static_cast<int>(epoll_jack.epoll_ev.size)
     };
