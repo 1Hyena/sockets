@@ -94,9 +94,11 @@ class SOCKETS final {
     bool deinit() noexcept;
 
     void set_logger(void (*callback)(const char *) noexcept) noexcept;
+    // TODO: void set_memcap
 
     int listen(
-        const char *port, int family =AF_UNSPEC, int flags =AI_PASSIVE
+        const char *port, int family =AF_UNSPEC,
+        const std::initializer_list<int> options ={SO_REUSEADDR}, int flags =0
     ) noexcept;
     bool connect(const char *host, const char *port, int group =0) noexcept;
     bool idle() const noexcept;
@@ -310,6 +312,7 @@ class SOCKETS final {
 
     int listen(
         const char *host, const char *port, int family, int flags,
+        const std::initializer_list<int> options,
         const char *file =__builtin_FILE(), int line =__builtin_LINE()
     ) noexcept;
 
@@ -328,6 +331,7 @@ class SOCKETS final {
 
     int open_and_init(
         const char *host, const char *port, int family, int flags,
+        const std::initializer_list<int> options ={},
         const struct addrinfo *blacklist =nullptr,
         const char *file =__builtin_FILE(), int line =__builtin_LINE()
     ) noexcept;
@@ -735,8 +739,11 @@ void SOCKETS::set_logger(void (*callback)(const char *) noexcept) noexcept {
     log_callback = callback;
 }
 
-int SOCKETS::listen(const char *port, int family, int flags) noexcept {
-    return listen(nullptr, port, family, flags);
+int SOCKETS::listen(
+    const char *port, int family, const std::initializer_list<int> options,
+    int flags
+) noexcept {
+    return listen(nullptr, port, family, AI_PASSIVE|flags, options);
 }
 
 struct SOCKETS::ALERT SOCKETS::next_alert() noexcept {
@@ -1931,7 +1938,7 @@ int SOCKETS::connect(
 
     int descriptor{
         open_and_init(
-            host, port, ai_family, ai_flags, blacklist, file, line
+            host, port, ai_family, ai_flags, {}, blacklist, file, line
         )
     };
 
@@ -2056,10 +2063,10 @@ void SOCKETS::terminate(int descriptor, const char *file, int line) noexcept {
 
 int SOCKETS::listen(
     const char *host, const char *port, int ai_family, int ai_flags,
-    const char *file, int line
+    const std::initializer_list<int> options, const char *file, int line
 ) noexcept {
     int epoll_descriptor = get_epoll_jack().descriptor;
-    int descriptor = open_and_init(host, port, ai_family, ai_flags);
+    int descriptor = open_and_init(host, port, ai_family, ai_flags, options);
 
     if (descriptor == NO_DESCRIPTOR) return NO_DESCRIPTOR;
 
@@ -2289,6 +2296,7 @@ bool SOCKETS::bind_to_epoll(int descriptor, int epoll_descriptor) noexcept {
 
 int SOCKETS::open_and_init(
     const char *host, const char *port, int ai_family, int ai_flags,
+    const std::initializer_list<int> options,
     const struct addrinfo *blacklist, const char *file, int line
 ) noexcept {
     static constexpr const bool establish_nonblocking_connections = true;
@@ -2362,30 +2370,38 @@ int SOCKETS::open_and_init(
         }
 
         if (jack && accept_incoming_connections) {
-            int optval = 1;
+            bool success = true;
 
-            retval = setsockopt(
-                descriptor, SOL_SOCKET, SO_REUSEADDR,
-                static_cast<const void *>(&optval), sizeof(optval)
-            );
+            for (int option : options) {
+                int optval = 1;
 
-            if (retval != 0) {
-                if (retval == -1) {
-                    int code = errno;
+                setsockopt(
+                    descriptor, SOL_SOCKET, option,
+                    static_cast<const void *>(&optval), sizeof(optval)
+                );
 
-                    log(
-                        "setsockopt: %s (%s:%d)", strerror(code),
-                        __FILE__, __LINE__
-                    );
-                }
-                else {
-                    log(
-                        "setsockopt: unexpected return value %d (%s:%d)",
-                        retval, __FILE__, __LINE__
-                    );
+                if (retval != 0) {
+                    if (retval == -1) {
+                        int code = errno;
+
+                        log(
+                            "setsockopt: %s (%s:%d)", strerror(code),
+                            __FILE__, __LINE__
+                        );
+                    }
+                    else {
+                        log(
+                            "setsockopt: unexpected return value %d (%s:%d)",
+                            retval, __FILE__, __LINE__
+                        );
+                    }
+
+                    success = false;
+                    break;
                 }
             }
-            else {
+
+            if (success) {
                 retval = bind(descriptor, next->ai_addr, next->ai_addrlen);
 
                 if (retval) {

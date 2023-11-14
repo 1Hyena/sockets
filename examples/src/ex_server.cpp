@@ -31,7 +31,16 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
-    int tcp_listener = sockets.listen(SERVER_PORT);
+    int tcp_listener{
+        sockets.listen(
+            SERVER_PORT,
+            AF_UNSPEC, // Accept connections from any address family.
+            {
+                SO_REUSEADDR, // Allow instantaneous server restarting.
+                SO_REUSEPORT  // Allow multiple listeners on the same port.
+            }
+        )
+    };
 
     if (tcp_listener != SOCKETS::NO_DESCRIPTOR) {
         constexpr int timeout_ms = 3000;
