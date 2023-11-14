@@ -222,12 +222,16 @@ class SOCKETS final {
             static_cast<size_t>(EVENT::MAX_EVENTS) // TODO: improve type?
         ];
         PIPE epoll_ev;
+        PIPE children;
         PIPE incoming;
         PIPE outgoing;
         PIPE host;
         PIPE port;
-        int descriptor; // TODO: typedef descriptor_type and use it instead
-        int parent;
+        int descriptor; // TODO: derive type from return type of socket function
+        struct PARENT {
+            int descriptor;
+            int child_index;
+        } parent;
         int group;
         int ai_family;
         int ai_flags;
@@ -333,16 +337,11 @@ class SOCKETS final {
     [[nodiscard]] ERROR capture(const JACK &copy) noexcept;
     void release(JACK *) noexcept;
 
-    const JACK *find_jack(int descriptor) const noexcept;
-    JACK *find_jack(int descriptor) noexcept;
-    const JACK *find_jack(EVENT) const noexcept;
-    JACK *find_jack(EVENT) noexcept;
-    const JACK *find_epoll_jack() const noexcept;
-    JACK *find_epoll_jack() noexcept;
-    const JACK &get_jack(int descriptor) const noexcept;
-    JACK &get_jack(int descriptor) noexcept;
-    const JACK &get_epoll_jack() const noexcept;
-    JACK &get_epoll_jack() noexcept;
+    JACK *find_jack(int descriptor) const noexcept;
+    JACK *find_jack(EVENT) const noexcept;
+    JACK *find_epoll_jack() const noexcept;
+    JACK &get_jack(int descriptor) const noexcept;
+    JACK &get_epoll_jack() const noexcept;
     const PIPE *find_descriptors(EVENT) const noexcept;
 
     [[nodiscard]] ERROR set_group(int descriptor, int group) noexcept;
@@ -352,6 +351,7 @@ class SOCKETS final {
     ) noexcept;
     void rem_event(JACK &, EVENT) noexcept;
     bool has_event(const JACK &, EVENT) const noexcept;
+    void rem_child(JACK &, JACK &child) const noexcept;
     [[nodiscard]] bool is_listener(const JACK &) const noexcept;
 
     size_t count(INDEX::TYPE, KEY key) const noexcept;
@@ -368,19 +368,19 @@ class SOCKETS final {
     [[nodiscard]] INDEX::ENTRY insert(
         INDEX::TYPE, KEY key, PIPE::ENTRY value
     ) noexcept;
-    void erase(PIPE &pipe, size_t index) noexcept;
+    void erase(PIPE &pipe, size_t index) const noexcept;
     void destroy(PIPE &pipe) noexcept;
     void set_value(INDEX::ENTRY, PIPE::ENTRY) noexcept;
     PIPE::ENTRY get_value(INDEX::ENTRY) const noexcept;
     PIPE::ENTRY get_entry(const PIPE &pipe, size_t index) const noexcept;
     PIPE::ENTRY get_last(const PIPE &pipe) const noexcept;
-    PIPE::ENTRY pop_back(PIPE &pipe) noexcept;
+    PIPE::ENTRY pop_back(PIPE &pipe) const noexcept;
     [[nodiscard]] ERROR reserve(PIPE&, size_t capacity) noexcept;
     [[nodiscard]] ERROR insert(PIPE&, PIPE::ENTRY) noexcept;
     [[nodiscard]] ERROR insert(PIPE&, size_t index, PIPE::ENTRY) noexcept;
     [[nodiscard]] ERROR copy(const PIPE &src, PIPE &dst) noexcept;
     [[nodiscard]] ERROR append(const PIPE &src, PIPE &dst) noexcept;
-    void replace(PIPE&, size_t index, PIPE::ENTRY) noexcept;
+    void replace(PIPE&, size_t index, PIPE::ENTRY) const noexcept;
     ERROR swap(PIPE &, PIPE &) noexcept;
     PIPE &get_buffer(BUFFER) noexcept;
     INDEX &get_index(INDEX::TYPE) noexcept;
@@ -832,7 +832,7 @@ size_t SOCKETS::get_group_size(int group) const noexcept {
 
 int SOCKETS::get_listener(int descriptor) const noexcept {
     const JACK *const jack = find_jack(descriptor);
-    return jack ? jack->parent : NO_DESCRIPTOR;
+    return jack ? jack->parent.descriptor : NO_DESCRIPTOR;
 }
 
 const char *SOCKETS::get_host(int descriptor) const noexcept {
@@ -2048,21 +2048,8 @@ void SOCKETS::terminate(int descriptor, const char *file, int line) noexcept {
     }
 
     if (is_listener(jack)) {
-        INDEX &index = get_index(INDEX::TYPE::DESCRIPTOR_JACK);
-
-        for (size_t bucket=0; bucket < index.buckets; ++bucket) {
-            // TODO: optimize this (use a special index for child-parent rels?)
-            for (size_t i=0; i<index.table[bucket].value.size; ++i) {
-                JACK *const rec{
-                    to_jack(get_entry(index.table[bucket].value, i))
-                };
-
-                if (rec->parent != descriptor) {
-                    continue;
-                }
-
-                terminate(rec->descriptor, file, line);
-            }
+        for (size_t i=0; i<jack.children.size; ++i) {
+            terminate(to_int(get_entry(jack.children, i)), file, line);
         }
     }
 }
@@ -2549,112 +2536,49 @@ size_t SOCKETS::close_and_deinit(int descriptor) noexcept {
     }
 
     size_t closed = 0;
-    retval = close(descriptor);
+    JACK &jack = get_jack(descriptor);
+    JACK *last = &jack;
 
-    if (retval) {
-        if (retval == -1) {
-            int code = errno;
+    for (;;) {
+        JACK *next_last{
+            last->children.size ? (
+                find_jack(to_int(get_last(last->children)))
+            ) : nullptr
+        };
 
-            log(
-                "close(%d): %s (%s:%d)",
-                descriptor, strerror(code), __FILE__, __LINE__
-            );
-        }
-        else {
-            log(
-                "close(%d): unexpected return value %d (%s:%d)",
-                descriptor, retval, __FILE__, __LINE__
-            );
-        }
-    }
-    else {
-        ++closed;
-
-        JACK *found = find_jack(descriptor);
-        int close_children_of = NO_DESCRIPTOR;
-
-        if (found->parent == NO_DESCRIPTOR) {
-            close_children_of = descriptor;
+        if (next_last) {
+            last = next_last;
+            continue;
         }
 
-        if (!found) {
-            log(
-                "descriptor %d closed but jack not found (%s:%d)",
-                descriptor, __FILE__, __LINE__
-            );
-        }
-        else release(found);
+        int d = last->descriptor;
+        retval = close(d);
 
-        if (close_children_of != NO_DESCRIPTOR) {
-            static constexpr const size_t descriptor_buffer_length = 1024;
-            int descriptor_buffer[descriptor_buffer_length];
-            size_t to_be_closed = 0;
+        if (retval) {
+            if (retval == -1) {
+                int code = errno;
 
-            INDEX &index = get_index(INDEX::TYPE::DESCRIPTOR_JACK);
-
-            Again:
-
-            for (size_t bucket=0; bucket < index.buckets; ++bucket) {
-                // TODO: optimize this (use a special index?)
-                for (size_t i=0; i<index.table[bucket].value.size; ++i) {
-                    JACK *const rec{
-                        to_jack(get_entry(index.table[bucket].value, i))
-                    };
-
-                    if (rec->parent != close_children_of) {
-                        continue;
-                    }
-
-                    if (to_be_closed < descriptor_buffer_length) {
-                        descriptor_buffer[to_be_closed++] = rec->descriptor;
-                    }
-                    else {
-                        goto CloseDescriptors;
-                    }
-                }
+                log(
+                    "close(%d): %s (%s:%d)", d, strerror(code),
+                    __FILE__, __LINE__
+                );
             }
-
-            CloseDescriptors:
-
-            if (to_be_closed) {
-                for (size_t i=0; i<to_be_closed; ++i) {
-                    int d = descriptor_buffer[i];
-
-                    retval = close(d);
-
-                    if (retval == -1) {
-                        int code = errno;
-                        log(
-                            "close(%d): %s (%s:%d)", d,
-                            strerror(code), __FILE__, __LINE__
-                        );
-                    }
-                    else if (retval != 0) {
-                        log(
-                            "close(%d): unexpected return value %d (%s:%d)",
-                            d, retval, __FILE__, __LINE__
-                        );
-                    }
-                    else {
-                        found = find_jack(d);
-
-                        if (!found) {
-                            log(
-                                "descriptor %d closed but jack not found "
-                                "(%s:%d)", d, __FILE__, __LINE__
-                            );
-                        }
-                        else release(found);
-
-                        ++closed;
-                    }
-                }
-
-                to_be_closed = 0;
-
-                goto Again;
+            else {
+                log(
+                    "close(%d): unexpected return value %d (%s:%d)", d, retval,
+                    __FILE__, __LINE__
+                );
             }
         }
+        else ++closed;
+
+        release(last);
+
+        if (last == &jack) {
+            break;
+        }
+
+        last = &jack;
     }
 
     retval = sigprocmask(SIG_SETMASK, &sigset_orig, nullptr);
@@ -2679,12 +2603,28 @@ SOCKETS::ERROR SOCKETS::capture(const JACK &copy) noexcept {
         die();
     }
 
+    PIPE *siblings = nullptr;
+
+    if (copy.parent.descriptor != NO_DESCRIPTOR) {
+        siblings = &get_jack(copy.parent.descriptor).children;
+
+        ERROR error{ insert(*siblings, make_pipe_entry(copy.descriptor)) };
+
+        if (error != ERROR::NONE) {
+            return error;
+        }
+    }
+
     int descriptor = copy.descriptor;
     int group = copy.group;
 
     JACK *const jack = new_jack(&copy);
 
     if (!jack) {
+        if (siblings) {
+            pop_back(*siblings);
+        }
+
         return ERROR::OUT_OF_MEMORY;
     }
 
@@ -2696,9 +2636,32 @@ SOCKETS::ERROR SOCKETS::capture(const JACK &copy) noexcept {
     };
 
     if (!entry.valid) {
+        if (siblings) {
+            pop_back(*siblings);
+        }
+
         recycle(get_memory(jack));
 
         return entry.error;
+    }
+
+    if (siblings) {
+        if (!siblings->size) {
+            return die();
+        }
+
+        size_t index = siblings->size - 1;
+        static constexpr const size_t max_index{
+            std::numeric_limits<decltype(jack->parent.child_index)>::max()
+        };
+
+        if (index > max_index) {
+            return die();
+        }
+
+        jack->parent.child_index = (
+            static_cast<decltype(jack->parent.child_index)>(index)
+        );
     }
 
     {
@@ -2720,7 +2683,16 @@ void SOCKETS::release(JACK *jack) noexcept {
         rem_event(*jack, static_cast<EVENT>(&ev - &(jack->event_lookup[0])));
     }
 
+    if (jack->parent.descriptor != NO_DESCRIPTOR) {
+        rem_child(get_jack(jack->parent.descriptor), *jack);
+    }
+
+    if (jack->children.size) {
+        bug(); // Children should have been already released.
+    }
+
     destroy(jack->epoll_ev);
+    destroy(jack->children);
     destroy(jack->incoming);
     destroy(jack->outgoing);
     destroy(jack->host);
@@ -2741,7 +2713,7 @@ void SOCKETS::release(JACK *jack) noexcept {
     recycle(get_memory(jack));
 }
 
-const SOCKETS::JACK *SOCKETS::find_jack(
+SOCKETS::JACK *SOCKETS::find_jack(
     int descriptor
 ) const noexcept {
     INDEX::ENTRY entry{
@@ -2755,13 +2727,7 @@ const SOCKETS::JACK *SOCKETS::find_jack(
     return to_jack(get_entry(*entry.val_pipe, entry.index));
 }
 
-SOCKETS::JACK *SOCKETS::find_jack(int descriptor) noexcept {
-    return const_cast<JACK *>(
-        static_cast<const SOCKETS &>(*this).find_jack(descriptor)
-    );
-}
-
-const SOCKETS::JACK *SOCKETS::find_jack(EVENT ev) const noexcept {
+SOCKETS::JACK *SOCKETS::find_jack(EVENT ev) const noexcept {
     INDEX::ENTRY entry{
         find(INDEX::TYPE::EVENT_DESCRIPTOR, make_key(ev))
     };
@@ -2774,31 +2740,11 @@ const SOCKETS::JACK *SOCKETS::find_jack(EVENT ev) const noexcept {
     return nullptr;
 }
 
-SOCKETS::JACK *SOCKETS::find_jack(EVENT ev) noexcept {
-    return const_cast<JACK *>(
-        static_cast<const SOCKETS &>(*this).find_jack(ev)
-    );
-}
-
-const SOCKETS::JACK *SOCKETS::find_epoll_jack() const noexcept {
+SOCKETS::JACK *SOCKETS::find_epoll_jack() const noexcept {
     return find_jack(EVENT::EPOLL);
 }
 
-SOCKETS::JACK *SOCKETS::find_epoll_jack() noexcept {
-    return const_cast<JACK *>(
-        static_cast<const SOCKETS &>(*this).find_epoll_jack()
-    );
-}
-
-const SOCKETS::JACK &SOCKETS::get_jack(int descriptor) const noexcept {
-    const JACK *const rec = find_jack(descriptor);
-
-    if (!rec) die();
-
-    return *rec;
-}
-
-SOCKETS::JACK &SOCKETS::get_jack(int descriptor) noexcept {
+SOCKETS::JACK &SOCKETS::get_jack(int descriptor) const noexcept {
     JACK *const rec = find_jack(descriptor);
 
     if (!rec) die();
@@ -2806,15 +2752,7 @@ SOCKETS::JACK &SOCKETS::get_jack(int descriptor) noexcept {
     return *rec;
 }
 
-const SOCKETS::JACK &SOCKETS::get_epoll_jack() const noexcept {
-    const JACK *const rec = find_epoll_jack();
-
-    if (!rec) die();
-
-    return *rec;
-}
-
-SOCKETS::JACK &SOCKETS::get_epoll_jack() noexcept {
+SOCKETS::JACK &SOCKETS::get_epoll_jack() const noexcept {
     JACK *const rec = find_epoll_jack();
 
     if (!rec) die();
@@ -3136,6 +3074,33 @@ bool SOCKETS::has_event(const JACK &jack, EVENT event) const noexcept {
     return false;
 }
 
+void SOCKETS::rem_child(JACK &jack, JACK &child) const noexcept {
+    if (child.parent.child_index < 0
+    || jack.descriptor != child.parent.descriptor) {
+        die();
+        return;
+    }
+
+    const decltype(PIPE::size) index = child.parent.child_index;
+
+    if (index + 1 == jack.children.size) {
+        pop_back(jack.children);
+    }
+    else {
+        PIPE::ENTRY entry { pop_back(jack.children) };
+        replace(jack.children, index, entry);
+
+        JACK &sibling = get_jack(to_int(entry));
+
+        sibling.parent.child_index = (
+            static_cast<decltype(sibling.parent.child_index)>(index)
+        );
+    }
+
+    child.parent.descriptor = NO_DESCRIPTOR;
+    child.parent.child_index = -1;
+}
+
 SOCKETS::INDEX::ENTRY SOCKETS::find(
     INDEX::TYPE index_type, KEY key, PIPE::ENTRY value,
     size_t start_i, size_t iterations
@@ -3322,7 +3287,7 @@ size_t SOCKETS::count(INDEX::TYPE index_type, KEY key) const noexcept {
 
 void SOCKETS::replace(
     PIPE &pipe, size_t index, PIPE::ENTRY value
-) noexcept {
+) const noexcept {
     if (index >= pipe.size) {
         die();
     }
@@ -3464,7 +3429,7 @@ SOCKETS::ERROR SOCKETS::append(const PIPE &src, PIPE &dst) noexcept {
     return ERROR::NONE;
 }
 
-void SOCKETS::erase(PIPE &pipe, size_t index) noexcept {
+void SOCKETS::erase(PIPE &pipe, size_t index) const noexcept {
     if (index >= pipe.size) {
         die();
     }
@@ -3481,7 +3446,7 @@ void SOCKETS::erase(PIPE &pipe, size_t index) noexcept {
     --pipe.size;
 }
 
-SOCKETS::PIPE::ENTRY SOCKETS::pop_back(PIPE &pipe) noexcept {
+SOCKETS::PIPE::ENTRY SOCKETS::pop_back(PIPE &pipe) const noexcept {
     size_t size = pipe.size;
 
     if (!size) {
@@ -3758,12 +3723,13 @@ constexpr SOCKETS::JACK SOCKETS::make_jack(
     JACK jack{
         .event_lookup = {},
         .epoll_ev     = { make_pipe(PIPE::TYPE::EPOLL_EVENT) },
+        .children     = { make_pipe(PIPE::TYPE::INT  ) },
         .incoming     = { make_pipe(PIPE::TYPE::UINT8) },
         .outgoing     = { make_pipe(PIPE::TYPE::UINT8) },
         .host         = { make_pipe(PIPE::TYPE::UINT8) },
         .port         = { make_pipe(PIPE::TYPE::UINT8) },
         .descriptor   = descriptor,
-        .parent       = parent,
+        .parent       = { .descriptor = parent, .child_index = -1 },
         .group        = group,
         .ai_family    = 0,
         .ai_flags     = 0,
