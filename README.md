@@ -92,7 +92,7 @@ examples.
   greets them with a short text message. After accepting a new connection, it
   just echoes anything it receives back to the client. When multiple instances
   of this server are running simultaneously, then the operating system will
-  choose which one gets to serve the next client. The latter is enalbed by the
+  choose which one gets to serve the next client. The latter is enabled by the
   `SO_REUSEPORT` socket option.
 
 * [ex_client](examples/src/ex_client.cpp) —
