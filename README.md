@@ -6,13 +6,16 @@ use of the *epoll* Linux kernel system call to achieve a scalable I/O event
 notification mechanism.
 
 * **Single-Threaded** —
-  Unlike most networking libraries, this one does not maintain a pool of threads
-  in order to concurrently manage multiple connections.
+  Unlike many networking libraries, this one does not maintain a pool of threads
+  in order to concurrently manage multiple connections. The caller may use this
+  library in a multithreaded context but is then fully responsible for avoiding
+  race conditions.
 
 * **Non-Throwing** —
   The SOCKETS class has all of its methods specified as *noexcept*, giving it a
-  no-throw exception guarantee. In other words, it's perfectly fine to use this
-  library in a program that is compiled with the `-fno-exceptions` flag.
+  no-throw exception guarantee. Also, it does not call any potentially throwing
+  functions internally either. Thus, it is perfectly fine to use this library in
+  a program that is compiled with the `-fno-exceptions` flag.
 
 * **Signal-Compatible** —
   This library can safely be used by a program that uses signals. It makes the
@@ -20,13 +23,13 @@ notification mechanism.
   that must not be interrupted by signals.
 
 * **Header-Only** —
-  Everything in this library is provided by a single self-contained header file
+  Everything in this library is provided in a single self-contained header file
   named [sockets.h](sockets.h).
 
 * **Scalable** —
   There is no intrinsic limit on the number of sockets managed by the library.
-  In other words, the CPU usage of this library is not significantly affected by
-  the number of established connections.
+  In other words, the CPU usage of this library is not affected by the number of
+  idle connections.
 
 
 # Usage ########################################################################
@@ -59,7 +62,7 @@ while (!sockets.next_error()) {
 }
 ```
 
-A really simple TCP client that doesn't do any error checking would look like
+A really simple TCP client that does not do any error checking is exemplified by
 the following code snippet.
 
 ```C++
@@ -87,12 +90,15 @@ examples.
 * [ex_server](examples/src/ex_server.cpp) —
   This example server listens for incoming TCP connections on port 4000 and
   greets them with a short text message. After accepting a new connection, it
-  just echoes anything it receives back to the client.
+  just echoes anything it receives back to the client. When multiple instances
+  of this server are running simultaneously, then the operating system will
+  choose which one gets to serve the next client. The latter is enalbed by the
+  `SO_REUSEPORT` socket option.
 
 * [ex_client](examples/src/ex_client.cpp) —
   This code example shows how to establish a single outgoing TCP connection and
   exchange some data with the target server. The client connects to _localhost_
-  on port 4000 and sends them some text message upon a successful connection.
+  on port 4000 and sends them a short text message upon a successful connection.
 
 * [ex_sleep](examples/src/ex_sleep.cpp) —
   The _SOCKETS::next_error_ method can take an argument specifying the maximum
