@@ -94,7 +94,7 @@ class SOCKETS final {
     bool deinit() noexcept;
 
     void set_logger(void (*callback)(const char *) noexcept) noexcept;
-    // TODO: void set_memcap
+    void set_memcap(size_t bytes) noexcept;
 
     int listen(
         const char *port, int family =AF_UNSPEC,
@@ -443,7 +443,10 @@ class SOCKETS final {
         MEMORY *list;
         size_t usage;
         size_t top;
+        size_t cap;
     } mempool;
+
+    inline static constexpr struct MEMPOOL make_mempool() noexcept;
 
     EVENT handled;
     ERROR errored;
@@ -464,8 +467,8 @@ bool operator!(SOCKETS::ERROR error) noexcept {
 }
 
 SOCKETS::SOCKETS() noexcept :
-    log_callback(nullptr), indices{}, buffers{}, mempool{}, handled{},
-    errored{}, bitset{} {
+    log_callback(nullptr), indices{}, buffers{}, mempool{make_mempool()},
+    handled{}, errored{}, bitset{} {
 }
 
 SOCKETS::~SOCKETS() {
@@ -737,6 +740,10 @@ bool SOCKETS::deinit() noexcept {
 
 void SOCKETS::set_logger(void (*callback)(const char *) noexcept) noexcept {
     log_callback = callback;
+}
+
+void SOCKETS::set_memcap(size_t bytes) noexcept {
+    mempool.cap = bytes;
 }
 
 int SOCKETS::listen(
@@ -3636,7 +3643,16 @@ SOCKETS::MEMORY *SOCKETS::allocate(size_t requested_byte_count) noexcept {
     }
 
     if (!memory) {
-        array = new (std::nothrow) uint8_t[total_size];
+        const auto usage_left{
+            std::numeric_limits<decltype(mempool.usage)>::max() - mempool.usage
+        };
+
+        array = (
+            usage_left >= total_size &&
+            mempool.cap >= mempool.usage + total_size ? (
+                new (std::nothrow) uint8_t[total_size]
+            ) : nullptr
+        );
 
         if (!array) {
             return nullptr;
@@ -3896,6 +3912,20 @@ constexpr struct SOCKETS::PIPE::ENTRY SOCKETS::make_pipe_entry(
     SOCKETS::PIPE::ENTRY{
         .as_ptr = value,
         .type = PIPE::TYPE::MEMORY_PTR
+    };
+}
+
+constexpr SOCKETS::MEMPOOL SOCKETS::make_mempool() noexcept {
+    return
+#if __cplusplus <= 201703L
+    __extension__
+#endif
+    SOCKETS::MEMPOOL{
+        .free  = {},
+        .list  = nullptr,
+        .usage = 0,
+        .top   = 0,
+        .cap   = std::numeric_limits<decltype(MEMPOOL::cap)>::max()
     };
 }
 
