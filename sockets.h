@@ -211,12 +211,14 @@ class SOCKETS final {
         };
 
         size_t buckets;
+        size_t entries;
         struct TABLE {
             PIPE key;
             PIPE value;
         } *table;
         TYPE type;
         bool multimap:1;
+        bool autogrow:1;
     };
 
     struct JACK {
@@ -372,6 +374,7 @@ class SOCKETS final {
     [[nodiscard]] INDEX::ENTRY insert(
         INDEX::TYPE, KEY key, PIPE::ENTRY value
     ) noexcept;
+    [[nodiscard]] ERROR reindex() noexcept;
     void erase(PIPE &pipe, size_t index) const noexcept;
     void destroy(PIPE &pipe) noexcept;
     void set_value(INDEX::ENTRY, PIPE::ENTRY) noexcept;
@@ -389,6 +392,7 @@ class SOCKETS final {
     PIPE &get_buffer(BUFFER) noexcept;
     INDEX &get_index(INDEX::TYPE) noexcept;
 
+    KEY       to_key   (PIPE::ENTRY) const noexcept;
     JACK     *to_jack  (PIPE::ENTRY) const noexcept;
     MEMORY   *to_memory(PIPE::ENTRY) const noexcept;
     int       to_int   (PIPE::ENTRY) const noexcept;
@@ -412,6 +416,8 @@ class SOCKETS final {
     MEMORY *find_memory(const void *) noexcept;
     const MEMORY &get_memory(const void *) const noexcept;
     MEMORY &get_memory(const void *) noexcept;
+    INDEX::TABLE *allocate_tables(size_t count) noexcept;
+    void destroy_and_delete(INDEX::TABLE *tables, size_t count) noexcept;
     MEMORY *allocate_and_index(
         size_t byte_count, const void *copy =nullptr
     ) noexcept;
@@ -452,9 +458,9 @@ class SOCKETS final {
     ERROR errored;
 
     struct BITSET {
-        bool out_of_memory:1;
         bool unhandled_events:1;
         bool timeout:1;
+        bool reindex:1;
     } bitset;
 
     sigset_t sigset_all;
@@ -472,7 +478,7 @@ SOCKETS::SOCKETS() noexcept :
 }
 
 SOCKETS::~SOCKETS() {
-    if (mempool.usage) {
+    if (mempool.usage > sizeof(SOCKETS)) {
         log(
             "memory usage remains at %lu byte%s (leak?)",
             mempool.usage, mempool.usage == 1 ? "" : "s"
@@ -502,16 +508,12 @@ void SOCKETS::clear() noexcept {
 
     for (INDEX &index : indices) {
         if (index.table) {
-            for (size_t i=0; i<index.buckets; ++i) {
-                destroy(index.table[i].key);
-                destroy(index.table[i].value);
-            }
-
-            delete [] index.table;
+            destroy_and_delete(index.table, index.buckets);
             index.table = nullptr;
         }
 
         index.buckets = 0;
+        index.entries = 0;
         index.type = INDEX::TYPE::NONE;
     }
 
@@ -529,12 +531,13 @@ void SOCKETS::clear() noexcept {
         }
     }
 
+    mempool.usage = sizeof(SOCKETS);
+    mempool.top = mempool.usage;
+
     bitset = {};
 }
 
 bool SOCKETS::init() noexcept {
-    static constexpr const size_t max_key_hash = 1024;
-
     for (INDEX &index : indices) {
         if (index.type != INDEX::TYPE::NONE) {
             log("%s: already initialized", __FUNCTION__);
@@ -581,21 +584,22 @@ bool SOCKETS::init() noexcept {
         return false;
     }
 
-    mempool.usage = 0;
-    mempool.top = 0;
+    clear();
 
     for (INDEX &index : indices) {
         index.type = static_cast<INDEX::TYPE>(&index - &indices[0]);
 
         switch (index.type) {
             default: {
-                index.buckets = max_key_hash;
+                index.buckets = 1;
                 index.multimap = false;
+                index.autogrow = true;
                 break;
             }
             case INDEX::TYPE::EVENT_DESCRIPTOR: {
                 index.buckets = static_cast<size_t>(EVENT::MAX_EVENTS);
                 index.multimap = true;
+                index.autogrow = false;
                 break;
             }
         }
@@ -604,15 +608,16 @@ bool SOCKETS::init() noexcept {
             case INDEX::TYPE::NONE: continue;
             case INDEX::TYPE::EVENT_DESCRIPTOR:
             case INDEX::TYPE::DESCRIPTOR_JACK:
-            case INDEX::TYPE::RESOURCE_MEMORY: // TODO: use better bucket count
+            case INDEX::TYPE::RESOURCE_MEMORY:
             case INDEX::TYPE::GROUP_SIZE: {
-                index.table = new (std::nothrow) INDEX::TABLE [index.buckets]();
+                index.table = allocate_tables(index.buckets);
                 break;
             }
             default: die();
         }
 
         if (index.table == nullptr) {
+            log("%s: out of memory (%s:%d)", __FUNCTION__, __FILE__, __LINE__);
             clear();
             return false;
         }
@@ -646,6 +651,7 @@ bool SOCKETS::init() noexcept {
 
             if (val_pipe.type == PIPE::TYPE::NONE) {
                 clear();
+                bug();
                 return false;
             }
         }
@@ -940,9 +946,12 @@ SOCKETS::ERROR SOCKETS::next_error(int timeout) noexcept {
         );
     }
 
-    if (bitset.out_of_memory) {
-        bitset.out_of_memory = false;
-        return err(ERROR::OUT_OF_MEMORY);
+    if (bitset.reindex) {
+        ERROR error{ reindex() };
+
+        if (error != ERROR::NONE) {
+            return err(error);
+        }
     }
 
     if (find_jack(EVENT::CONNECTION)) {
@@ -2833,6 +2842,12 @@ uint64_t SOCKETS::to_uint64(PIPE::ENTRY entry) const noexcept {
     return entry.as_uint64;
 }
 
+SOCKETS::KEY SOCKETS::to_key(PIPE::ENTRY entry) const noexcept {
+    if (entry.type != PIPE::TYPE::KEY) die();
+
+    return entry.as_key;
+}
+
 int *SOCKETS::to_int(const PIPE &pipe) const noexcept {
     if (pipe.type != PIPE::TYPE::INT) die();
 
@@ -3180,7 +3195,7 @@ SOCKETS::INDEX::ENTRY SOCKETS::find(
 SOCKETS::INDEX::ENTRY SOCKETS::insert(
     INDEX::TYPE index_type, KEY key, PIPE::ENTRY value
 ) noexcept {
-    const INDEX &index = indices[size_t(index_type)];
+    INDEX &index = indices[size_t(index_type)];
 
     if (!index.multimap) {
         INDEX::ENTRY found{ find(index_type, key) };
@@ -3209,7 +3224,12 @@ SOCKETS::INDEX::ENTRY SOCKETS::insert(
     if (error == ERROR::NONE) {
         error = insert(val_pipe, value);
 
-        if (error != ERROR::NONE) {
+        if (error == ERROR::NONE) {
+            if (++index.entries > index.buckets && index.autogrow) {
+                bitset.reindex = true;
+            }
+        }
+        else {
             if (key_pipe.size > old_size) {
                 --key_pipe.size;
             }
@@ -3224,7 +3244,7 @@ size_t SOCKETS::erase(
     INDEX::TYPE index_type, KEY key, PIPE::ENTRY value,
     size_t start_i, size_t iterations
 ) noexcept {
-    const INDEX &index = indices[size_t(index_type)];
+    INDEX &index = indices[size_t(index_type)];
 
     if (index.buckets <= 0) die();
 
@@ -3281,6 +3301,8 @@ size_t SOCKETS::erase(
         break;
     }
 
+    index.entries -= erased;
+
     return erased;
 }
 
@@ -3306,6 +3328,70 @@ size_t SOCKETS::count(INDEX::TYPE index_type, KEY key) const noexcept {
     else die();
 
     return count;
+}
+
+SOCKETS::ERROR SOCKETS::reindex() noexcept {
+    for (INDEX &index : indices) {
+        if (!index.autogrow || index.entries <= index.buckets) {
+            continue;
+        }
+
+        const size_t new_buckets = next_pow2(index.entries);
+
+        INDEX::TABLE *new_table = allocate_tables(new_buckets);
+        INDEX::TABLE *old_table = index.table;
+
+        if (new_table) {
+            for (size_t i=0; i<new_buckets; ++i) {
+                new_table[i].key.type = old_table->key.type;
+                new_table[i].value.type = old_table->value.type;
+            }
+        }
+        else {
+            return ERROR::OUT_OF_MEMORY;
+        }
+
+        const size_t old_buckets = index.buckets;
+        const size_t old_entries = index.entries;
+
+        index.table = new_table;
+        index.buckets = new_buckets;
+        index.entries = 0;
+
+        for (size_t i=0; i<old_buckets; ++i) {
+            INDEX::TABLE &table = old_table[i];
+
+            for (size_t j=0, sz=table.value.size; j<sz; ++j) {
+                INDEX::ENTRY entry{
+                    insert(
+                        index.type,
+                        to_key(get_entry(table.key, j)),
+                        get_entry(table.value, j)
+                    )
+                };
+
+                if (!entry.valid) {
+                    index.table = old_table;
+                    index.buckets = old_buckets;
+                    index.entries = old_entries;
+
+                    destroy_and_delete(new_table, new_buckets);
+
+                    return entry.error;
+                }
+            }
+        }
+
+        destroy_and_delete(old_table, old_buckets);
+
+        if (index.entries != old_entries) {
+            bug();
+        }
+    }
+
+    bitset.reindex = false;
+
+    return ERROR::NONE;
 }
 
 void SOCKETS::replace(
@@ -3624,6 +3710,39 @@ SOCKETS::MEMORY &SOCKETS::get_memory(const void *resource) noexcept {
     if (!memory) die();
 
     return *memory;
+}
+
+SOCKETS::INDEX::TABLE *SOCKETS::allocate_tables(size_t count) noexcept {
+    const size_t total_size = sizeof(INDEX::TABLE) * count;
+    const auto usage_left{
+        std::numeric_limits<decltype(mempool.usage)>::max() - mempool.usage
+    };
+
+    INDEX::TABLE *tables = (
+        usage_left >= total_size &&
+        mempool.cap >= mempool.usage + total_size ? (
+            new (std::nothrow) INDEX::TABLE [count]()
+        ) : nullptr
+    );
+
+    if (!tables) {
+        return nullptr;
+    }
+
+    mempool.usage += total_size;
+
+    return tables;
+}
+
+void SOCKETS::destroy_and_delete(INDEX::TABLE *tables, size_t count) noexcept {
+    for (size_t i=0; i<count; ++i) {
+        destroy(tables[i].key);
+        destroy(tables[i].value);
+    }
+
+    delete [] tables;
+
+    mempool.usage -= sizeof(INDEX::TABLE) * count;
 }
 
 SOCKETS::MEMORY *SOCKETS::allocate(size_t requested_byte_count) noexcept {
