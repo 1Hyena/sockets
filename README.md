@@ -129,6 +129,17 @@ required dependencies listed in the following section.
 The library requires a C++17 compliant GNU Compiler and Linux kernel headers.
 
 
+# Showcase #####################################################################
+
+Some of the projects that have put SOCKETS into good use are listed below.
+
+* [TCP Nipple](https://github.com/1Hyena/tcpnipple) —
+  a proxy client that joins together pairs of outgoing TCP connections
+
+* [TCP Herald](https://github.com/1Hyena/tcpherald) —
+  a proxy server that joins together pairs of incoming TCP connections
+
+
 # License ######################################################################
 
 The SOCKETS library has been authored by Erich Erstu and is released under the
