@@ -95,6 +95,10 @@ class SOCKETS final {
 
     void set_logger(void (*callback)(const char *) noexcept) noexcept;
     void set_memcap(size_t bytes) noexcept;
+    void set_intake(
+        int descriptor, size_t bytes,
+        const char *file =__builtin_FILE(), int line =__builtin_LINE()
+    ) noexcept;
 
     int listen(
         const char *port, int family =AF_UNSPEC,
@@ -140,7 +144,6 @@ class SOCKETS final {
         NEXT_ERROR,
         READ,
         WRITEF,
-        HANDLE_READ,
         // Do not change the order of items below this line.
         MAX_BUFFERS
     };
@@ -222,6 +225,7 @@ class SOCKETS final {
     };
 
     struct JACK {
+        size_t intake;
         uint32_t event_lookup[
             static_cast<size_t>(EVENT::MAX_EVENTS) // TODO: improve type?
         ];
@@ -426,6 +430,10 @@ class SOCKETS final {
     void recycle(MEMORY &) noexcept;
     JACK *new_jack(const JACK *copy =nullptr) noexcept;
 
+    void log(
+        ERROR, const char *file =__builtin_FILE(), int line =__builtin_LINE(),
+        char const *function = __builtin_FUNCTION()
+    ) const noexcept;
     void log(
         const char *fmt, ...
     ) const noexcept __attribute__((format(printf, 2, 3)));
@@ -669,22 +677,15 @@ bool SOCKETS::init() noexcept {
                 pipe.type = PIPE::TYPE::UINT8;
                 break;
             }
-            case BUFFER::READ:
-            case BUFFER::HANDLE_READ: {
-                static constexpr const size_t buffer_length{
-                    1024 // TODO: make it possible to configure this
-                };
+            case BUFFER::READ: {
+                static constexpr const size_t buffer_length{ 1024 };
 
                 pipe.type = PIPE::TYPE::UINT8;
 
                 ERROR error{ reserve(pipe, buffer_length) };
 
                 if (error != ERROR::NONE) {
-                    log(
-                        "%s: %s (%s:%d)",
-                        __FUNCTION__, get_code(error), __FILE__, __LINE__
-                    );
-
+                    log(error);
                     clear();
 
                     return false;
@@ -750,6 +751,17 @@ void SOCKETS::set_logger(void (*callback)(const char *) noexcept) noexcept {
 
 void SOCKETS::set_memcap(size_t bytes) noexcept {
     mempool.cap = bytes;
+}
+
+void SOCKETS::set_intake(
+    int descriptor, size_t bytes, const char *file, int line
+) noexcept {
+    JACK *jack = find_jack(descriptor);
+
+    if (jack) {
+        jack->intake = bytes;
+    }
+    else log("descriptor %d not found (%s:%d)", descriptor, file, line);
 }
 
 int SOCKETS::listen(
@@ -1159,7 +1171,7 @@ const char *SOCKETS::read(int descriptor) noexcept {
     to_uint8(buffer)[count] = '\0';
     buffer.size = count + 1;
 
-    return reinterpret_cast<const char *>(to_uint8(buffer));
+    return to_char(buffer);
 }
 
 SOCKETS::ERROR SOCKETS::write(
@@ -1333,6 +1345,12 @@ void SOCKETS::log(const char *fmt, ...) const noexcept {
     if (bufptr && bufptr != stackbuf) delete [] bufptr;
 }
 
+void SOCKETS::log(
+    ERROR error, const char *file, int line, char const *function
+) const noexcept {
+    log("%s: %s (%s:%d)", function, get_code(error), file, line);
+}
+
 void SOCKETS::bug(const char *file, int line) const noexcept {
     log("Forbidden condition met in %s on line %d.", file, line);
 }
@@ -1480,10 +1498,7 @@ SOCKETS::ERROR SOCKETS::handle_epoll(
         size_t new_size = epoll_jack.epoll_ev.size;
 
         if (error != ERROR::NONE) {
-            log(
-                "%s: %s (%s:%d)", __FUNCTION__, get_code(error),
-                __FILE__, __LINE__
-            );
+            log(error);
         }
 
         if (old_size != new_size) {
@@ -1593,16 +1608,25 @@ SOCKETS::ERROR SOCKETS::handle_epoll(
 }
 
 SOCKETS::ERROR SOCKETS::handle_read(JACK &jack) noexcept {
-    // TODO: read directly to the pipework of the jack's incoming buffer in
-    // respect to its individual hard limit of incoming bytes.
+    PIPE &buffer = jack.incoming;
 
-    int descriptor = jack.descriptor;
-    PIPE &buffer = get_buffer(BUFFER::HANDLE_READ);
+    if (!buffer.capacity) {
+        ERROR error{ reserve(buffer, 1) };
+
+        if (error != ERROR::NONE) {
+            log(error);
+            set_event(jack, EVENT::READ);
+
+            return error;
+        }
+    }
+
+    const int descriptor = jack.descriptor;
 
     for (size_t total_count = 0;;) {
         ssize_t count;
-        char *const buf = (char *) buffer.data;
-        const size_t buf_sz = buffer.capacity;
+        char *const buf = to_char(buffer) + buffer.size;
+        const size_t buf_sz = buffer.capacity - buffer.size;
 
         if (!buf_sz) {
             set_event(jack, EVENT::READ);
@@ -1640,32 +1664,27 @@ SOCKETS::ERROR SOCKETS::handle_read(JACK &jack) noexcept {
             break;
         }
 
-        const PIPE wrapper{
-            make_pipe(reinterpret_cast<const uint8_t *>(buf), count)
-        };
-
-        ERROR error{
-            // TODO: if appending fails, then incoming bytes go lost. in case
-            // of out-of-memory error, we should somehow overcome this.
-            append(wrapper, jack.incoming)
-        };
-
         if (!total_count) {
             set_event(jack, EVENT::READ);
             set_event(jack, EVENT::INCOMING);
         }
 
-        if (error != ERROR::NONE) {
-            // TODO: figure out if there is a better way to overcome errors here
-            return error;
-        }
-
         total_count += count;
+        buffer.size += count;
 
-        //if (size_t(count) == buf_sz && buffer.capacity < MAX_CACHE_SIZE) {
-        //    TODO: request for the expansion of the buffer
-        //    reserve(buffer, std::min(2 * buffer.capacity, MAX_CACHE_SIZE));
-        //}
+        if (buffer.size == buffer.capacity && buffer.capacity < jack.intake) {
+            ERROR error{
+                // Errors here are not fatal because we are just trying to
+                // increase the capacity of the buffer.
+
+                reserve(buffer, std::min(2 * buffer.capacity, jack.intake))
+            };
+
+            if (error != ERROR::NONE
+            &&  error != ERROR::OUT_OF_MEMORY) {
+                log(error);
+            }
+        }
     }
 
     jack.bitset.may_shutdown = false;
@@ -2258,10 +2277,7 @@ int SOCKETS::create_epoll() noexcept {
         ERROR error{ reserve(jack.epoll_ev, 1) };
 
         if (error != ERROR::NONE) {
-            log(
-                "%s: %s (%s:%d)", __FUNCTION__, get_code(error),
-                __FILE__, __LINE__
-            );
+            log(error);
 
             if (!close_and_deinit(epoll_descriptor)) {
                 release(&jack);
@@ -3872,6 +3888,7 @@ constexpr SOCKETS::JACK SOCKETS::make_jack(
     __extension__
 #endif
     JACK jack{
+        .intake       = std::numeric_limits<size_t>::max(),
         .event_lookup = {},
         .epoll_ev     = { make_pipe(PIPE::TYPE::EPOLL_EVENT) },
         .children     = { make_pipe(PIPE::TYPE::INT  ) },
