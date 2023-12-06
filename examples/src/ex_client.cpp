@@ -11,7 +11,7 @@ int main(int argc, char **argv) {
     printf("Initializing networking (SOCKETS v%s).\n", SOCKETS::VERSION);
 
     if (!sockets.init()) {
-        printf("%s\n", "Failed to initialize networking.");
+        printf("%s\n", "Failed to initialize sockets.");
         return EXIT_FAILURE;
     }
 
@@ -23,7 +23,7 @@ int main(int argc, char **argv) {
 
     printf("Connecting to %s:%s.\n", SERVER_HOST, SERVER_PORT);
 
-    if (sockets.connect(SERVER_HOST, SERVER_PORT)) {
+    if (sockets.connect(SERVER_HOST, SERVER_PORT).valid) {
         constexpr int timeout_ms = 3000;
         bool connected = false;
         SOCKETS::ALERT alert;
@@ -41,17 +41,17 @@ int main(int argc, char **argv) {
             }
 
             while ((alert = sockets.next_alert()).valid) {
-                int d = alert.descriptor;
+                size_t sid = alert.session;
 
                 switch (alert.event) {
                     case SOCKETS::EV_CONNECTION: {
                         printf(
                             "Connected to %s:%s.\n",
-                            sockets.get_host(d), sockets.get_port(d)
+                            sockets.get_host(sid), sockets.get_port(sid)
                         );
 
                         connected = true;
-                        sockets.write(d, "Ahoy!\n");
+                        sockets.write(sid, "Ahoy!\n");
 
                         continue;
                     }
@@ -59,7 +59,7 @@ int main(int argc, char **argv) {
                         if (connected) {
                             printf(
                                 "Disconnected from %s:%s.\n",
-                                sockets.get_host(d), sockets.get_port(d)
+                                sockets.get_host(sid), sockets.get_port(sid)
                             );
 
                             goto TheEnd;
@@ -70,8 +70,8 @@ int main(int argc, char **argv) {
                     case SOCKETS::EV_INCOMING: {
                         printf(
                             "%s:%s> %s\n",
-                            sockets.get_host(d), sockets.get_port(d),
-                            sockets.read(d)
+                            sockets.get_host(sid), sockets.get_port(sid),
+                            sockets.read(sid)
                         );
 
                         continue;

@@ -16,7 +16,7 @@ int main(int argc, char **argv) {
     printf("Initializing networking (SOCKETS v%s).\n", SOCKETS::VERSION);
 
     if (!sockets.init()) {
-        printf("%s\n", "Failed to initialize networking.");
+        printf("%s\n", "Failed to initialize sockets.");
         return EXIT_FAILURE;
     }
 

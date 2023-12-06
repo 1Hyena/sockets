@@ -27,11 +27,11 @@ int main(int argc, char **argv) {
     );
 
     if (!sockets.init()) {
-        printf("%s\n", "Failed to initialize networking.");
+        printf("%s\n", "Failed to initialize sockets.");
         return EXIT_FAILURE;
     }
 
-    int tcp_listener{
+    SOCKETS::SESSION session{
         sockets.listen(
             SERVER_PORT,
             AF_UNSPEC, // Accept connections from any address family.
@@ -42,12 +42,12 @@ int main(int argc, char **argv) {
         )
     };
 
-    if (tcp_listener != SOCKETS::NO_DESCRIPTOR) {
+    if (session.valid) {
         constexpr int timeout_ms = 3000;
 
         printf(
             "Listening for TCP connections on %s:%s.\n",
-            sockets.get_host(tcp_listener), sockets.get_port(tcp_listener)
+            sockets.get_host(session.id), sockets.get_port(session.id)
         );
 
         while (!sockets.next_error(timeout_ms)) {
@@ -74,7 +74,7 @@ int main(int argc, char **argv) {
             );
         }
 
-        sockets.disconnect(tcp_listener);
+        sockets.disconnect(session.id);
     }
 
     sockets.deinit();
@@ -87,41 +87,43 @@ static void handle(SOCKETS &sockets) {
     std::vector<uint8_t> buffer;
 
     while ((alert = sockets.next_alert()).valid) {
-        int d = alert.descriptor;
+        size_t sid = alert.session;
 
         switch (alert.event) {
             case SOCKETS::EV_CONNECTION: {
                 printf(
-                    "New connection from %s:%s (descriptor %d).\n",
-                    sockets.get_host(d), sockets.get_port(d), d
+                    "New connection from %s:%s (session %lu).\n",
+                    sockets.get_host(sid), sockets.get_port(sid), sid
                 );
 
                 sockets.writef(
-                    d, "Hello, %s:%s!\n",
-                    sockets.get_host(d), sockets.get_port(d)
+                    sid, "Hello, %s:%s!\n",
+                    sockets.get_host(sid), sockets.get_port(sid)
                 );
 
                 continue;
             }
             case SOCKETS::EV_DISCONNECTION: {
                 printf(
-                    "Disconnected %s:%s (descriptor %d).\n",
-                    sockets.get_host(d), sockets.get_port(d), d
+                    "Disconnected %s:%s (session %lu).\n",
+                    sockets.get_host(sid), sockets.get_port(sid), sid
                 );
 
                 continue;
             }
             case SOCKETS::EV_INCOMING: {
-                buffer.resize(std::max(buffer.capacity(), sockets.incoming(d)));
-
-                size_t count = sockets.read(d, buffer.data(), buffer.size());
-
-                printf(
-                    "Received %lu byte%s from descriptor %d.\n",
-                    count, count == 1 ? "" : "s", d
+                buffer.resize(
+                    std::max(buffer.capacity(), sockets.incoming(sid))
                 );
 
-                sockets.write(d, buffer.data(), count);
+                size_t count = sockets.read(sid, buffer.data(), buffer.size());
+
+                printf(
+                    "Received %lu byte%s from session %lu.\n",
+                    count, count == 1 ? "" : "s", sid
+                );
+
+                sockets.write(sid, buffer.data(), count);
 
                 continue;
             }

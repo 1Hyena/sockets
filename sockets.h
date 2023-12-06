@@ -41,14 +41,14 @@
 class SOCKETS final {
     public:
     static constexpr const char *const VERSION = "1.0";
-    static constexpr const int NO_DESCRIPTOR = -1; // TODO: get rid of this
 
     enum class ERROR : uint8_t {
         NONE = 0,
         OUT_OF_MEMORY,
         UNDEFINED_BEHAVIOR,
         FORBIDDEN_CONDITION,
-        UNHANDLED_EVENTS
+        UNHANDLED_EVENTS,
+        UNSPECIFIED
     };
 
     static constexpr const ERROR
@@ -56,9 +56,16 @@ class SOCKETS final {
         ERR_OUT_OF_MEMORY       = ERROR::OUT_OF_MEMORY,
         ERR_UNDEFINED_BEHAVIOR  = ERROR::UNDEFINED_BEHAVIOR,
         ERR_FORBIDDEN_CONDITION = ERROR::FORBIDDEN_CONDITION,
-        ERR_UNHANDLED_EVENTS    = ERROR::UNHANDLED_EVENTS;
+        ERR_UNHANDLED_EVENTS    = ERROR::UNHANDLED_EVENTS,
+        ERR_UNSPECIFIED         = ERROR::UNSPECIFIED;
 
     inline static const char *get_code(ERROR) noexcept;
+
+    struct SESSION {
+        size_t id;
+        ERROR error;
+        bool valid:1;
+    };
 
     enum class EVENT : uint8_t {
         NONE = 0,
@@ -76,7 +83,7 @@ class SOCKETS final {
     };
 
     struct ALERT {
-        int descriptor;
+        size_t session;
         EVENT event;
         bool valid:1;
     };
@@ -96,42 +103,42 @@ class SOCKETS final {
     void set_logger(void (*callback)(const char *) noexcept) noexcept;
     void set_memcap(size_t bytes) noexcept;
     void set_intake(
-        int descriptor, size_t bytes,
+        size_t session_id, size_t bytes,
         const char *file =__builtin_FILE(), int line =__builtin_LINE()
     ) noexcept;
 
-    int listen(
+    SESSION listen(
         const char *port, int family =AF_UNSPEC,
         const std::initializer_list<int> options ={SO_REUSEADDR}, int flags =0
     ) noexcept;
-    bool connect(const char *host, const char *port, int group =0) noexcept;
+    SESSION connect(const char *host, const char *port) noexcept;
     bool idle() const noexcept;
 
     ERROR next_error(int timeout =-1) noexcept;
     ERROR last_error() noexcept;
     ALERT next_alert() noexcept;
 
-    size_t incoming(int descriptor) const noexcept;
-    size_t outgoing(int descriptor) const noexcept;
-    size_t read(int descriptor, void *buf, size_t count) noexcept;
-    const char *read(int descriptor) noexcept;
-    ERROR write(int descriptor, const void *buf, size_t count) noexcept;
-    ERROR write(int descriptor, const char *text) noexcept;
+    size_t incoming(size_t session_id) const noexcept;
+    size_t outgoing(size_t session_id) const noexcept;
+    size_t read(size_t session_id, void *buf, size_t count) noexcept;
+    const char *read(size_t session_id) noexcept;
+    ERROR write(size_t session_id, const void *buf, size_t count) noexcept;
+    ERROR write(size_t session_id, const char *text) noexcept;
     ERROR writef(
-        int descriptor, const char *fmt, ...
+        size_t session_id, const char *fmt, ...
     ) noexcept __attribute__((format(printf, 3, 4)));
 
-    [[nodiscard]] bool is_listener(int descriptor) const noexcept;
-    [[nodiscard]] bool is_frozen(int descriptor) const noexcept;
-    [[nodiscard]] int get_group(int descriptor) const noexcept;
-    [[nodiscard]] size_t get_group_size(int group) const noexcept;
-    [[nodiscard]] int get_listener(int descriptor) const noexcept;
-    [[nodiscard]] const char *get_host(int descriptor) const noexcept;
-    [[nodiscard]] const char *get_port(int descriptor) const noexcept;
+    [[nodiscard]] bool is_listener(size_t session_id) const noexcept;
+    [[nodiscard]] bool is_frozen(size_t session_id) const noexcept;
+    [[nodiscard]] SESSION get_listener(size_t session_id) const noexcept;
+    [[nodiscard]] const char *get_host(size_t session_id) const noexcept;
+    [[nodiscard]] const char *get_port(size_t session_id) const noexcept;
+    [[nodiscard]] SESSION get_session(int descriptor) const noexcept;
+    [[nodiscard]] const int *get_descriptor(size_t session_id) const noexcept;
 
-    void freeze(int descriptor) noexcept;
-    void unfreeze(int descriptor) noexcept;
-    void disconnect(int descriptor) noexcept;
+    void freeze(size_t session_id) noexcept;
+    void unfreeze(size_t session_id) noexcept;
+    void disconnect(size_t session_id) noexcept;
 
     private:
     static constexpr const size_t BITS_PER_BYTE{
@@ -197,9 +204,9 @@ class SOCKETS final {
         enum class TYPE : uint8_t {
             NONE = 0,
             // Do not change the order of the types above this line.
-            GROUP_SIZE,
             EVENT_DESCRIPTOR,
             DESCRIPTOR_JACK,
+            SESSION_JACK,
             RESOURCE_MEMORY,
             // Do not change the order of the types below this line.
             MAX_TYPES
@@ -225,22 +232,20 @@ class SOCKETS final {
     };
 
     struct JACK {
+        size_t id;
         size_t intake;
-        uint32_t event_lookup[
-            static_cast<size_t>(EVENT::MAX_EVENTS) // TODO: improve type?
-        ];
+        unsigned event_lookup[ static_cast<size_t>(EVENT::MAX_EVENTS) ];
         PIPE epoll_ev;
         PIPE children;
         PIPE incoming;
         PIPE outgoing;
         PIPE host;
         PIPE port;
-        int descriptor; // TODO: derive type from return type of socket function
+        int descriptor;
         struct PARENT {
             int descriptor;
             int child_index;
         } parent;
-        int group;
         int ai_family;
         int ai_flags;
         struct addrinfo *blacklist;
@@ -257,11 +262,16 @@ class SOCKETS final {
     inline static constexpr KEY make_key(EVENT) noexcept;
 
     inline static constexpr struct JACK make_jack(
-        int descriptor, int parent, int group
+        int descriptor, int parent =-1
     ) noexcept;
 
     inline static constexpr struct ALERT make_alert(
-        int descriptor, EVENT type, bool valid =true
+        size_t session, EVENT type, bool valid =true
+    ) noexcept;
+
+    inline static constexpr struct SESSION make_session(ERROR) noexcept;
+    inline static constexpr struct SESSION make_session(
+        size_t id, ERROR error =ERROR::NONE, bool valid =true
     ) noexcept;
 
     inline static constexpr struct INDEX::ENTRY make_index_entry(
@@ -294,6 +304,7 @@ class SOCKETS final {
         const addrinfo &info, const addrinfo *list
     ) noexcept;
 
+    inline static constexpr bool is_descriptor(int) noexcept;
     inline static constexpr EVENT next(EVENT) noexcept;
     inline static constexpr size_t size(PIPE::TYPE) noexcept;
     inline static constexpr auto fmt_bytes(size_t) noexcept;
@@ -310,13 +321,13 @@ class SOCKETS final {
     ERROR handle_write (JACK &) noexcept;
     ERROR handle_accept(JACK &) noexcept;
 
-    int connect(
-        const char *host, const char *port, int group, int family, int flags,
+    SESSION connect(
+        const char *host, const char *port, int family, int flags,
         const struct addrinfo *blacklist =nullptr,
         const char *file =__builtin_FILE(), int line =__builtin_LINE()
     ) noexcept;
 
-    int listen(
+    SESSION listen(
         const char *host, const char *port, int family, int flags,
         const std::initializer_list<int> options,
         const char *file =__builtin_FILE(), int line =__builtin_LINE()
@@ -327,35 +338,36 @@ class SOCKETS final {
         const char *file =__builtin_FILE(), int line =__builtin_LINE()
     ) noexcept;
 
-    int next_connection() noexcept;
-    int next_disconnection() noexcept;
-    int next_incoming() noexcept;
+    size_t next_connection() noexcept;
+    size_t next_disconnection() noexcept;
+    size_t next_incoming() noexcept;
 
-    int create_epoll() noexcept;
+    SESSION create_epoll() noexcept;
     bool bind_to_epoll(int descriptor, int epoll_descriptor) noexcept;
     bool modify_epoll(int descriptor, uint32_t events) noexcept;
 
-    int open_and_init(
+    SESSION open_and_capture(
         const char *host, const char *port, int family, int flags,
         const std::initializer_list<int> options ={},
         const struct addrinfo *blacklist =nullptr,
         const char *file =__builtin_FILE(), int line =__builtin_LINE()
     ) noexcept;
 
-    size_t close_and_deinit(int descriptor) noexcept;
+    void close_and_release(JACK&) noexcept;
+    void close_descriptor(int) noexcept;
 
-    [[nodiscard]] ERROR capture(const JACK &copy) noexcept;
+    [[nodiscard]] SESSION capture(const JACK &copy) noexcept;
     void release(JACK *) noexcept;
 
     JACK *find_jack(int descriptor) const noexcept;
+    JACK *find_jack(SESSION) const noexcept;
     JACK *find_jack(EVENT) const noexcept;
     JACK *find_epoll_jack() const noexcept;
     JACK &get_jack(int descriptor) const noexcept;
+    JACK &get_jack(SESSION) const noexcept;
     JACK &get_epoll_jack() const noexcept;
     const PIPE *find_descriptors(EVENT) const noexcept;
 
-    [[nodiscard]] ERROR set_group(int descriptor, int group) noexcept;
-    void rem_group(int descriptor) noexcept;
     /*TODO: [[nodiscard]]*/ ERROR set_event(
         JACK &, EVENT, bool val =true
     ) noexcept;
@@ -465,6 +477,8 @@ class SOCKETS final {
     EVENT handled;
     ERROR errored;
 
+    size_t last_jack_id;
+
     struct BITSET {
         bool unhandled_events:1;
         bool timeout:1;
@@ -482,7 +496,7 @@ bool operator!(SOCKETS::ERROR error) noexcept {
 
 SOCKETS::SOCKETS() noexcept :
     log_callback(nullptr), indices{}, buffers{}, mempool{make_mempool()},
-    handled{}, errored{}, bitset{} {
+    handled{}, errored{}, last_jack_id{}, bitset{} {
 }
 
 SOCKETS::~SOCKETS() {
@@ -541,6 +555,8 @@ void SOCKETS::clear() noexcept {
 
     mempool.usage = sizeof(SOCKETS);
     mempool.top = mempool.usage;
+
+    last_jack_id = 0;
 
     bitset = {};
 }
@@ -616,8 +632,8 @@ bool SOCKETS::init() noexcept {
             case INDEX::TYPE::NONE: continue;
             case INDEX::TYPE::EVENT_DESCRIPTOR:
             case INDEX::TYPE::DESCRIPTOR_JACK:
-            case INDEX::TYPE::RESOURCE_MEMORY:
-            case INDEX::TYPE::GROUP_SIZE: {
+            case INDEX::TYPE::SESSION_JACK:
+            case INDEX::TYPE::RESOURCE_MEMORY: {
                 index.table = allocate_tables(index.buckets);
                 break;
             }
@@ -638,16 +654,13 @@ bool SOCKETS::init() noexcept {
             key_pipe.type = PIPE::TYPE::KEY;
 
             switch (index.type) {
+                case INDEX::TYPE::SESSION_JACK:
                 case INDEX::TYPE::DESCRIPTOR_JACK: {
                     val_pipe.type = PIPE::TYPE::JACK_PTR;
                     break;
                 }
                 case INDEX::TYPE::RESOURCE_MEMORY: {
                     val_pipe.type = PIPE::TYPE::MEMORY_PTR;
-                    break;
-                }
-                case INDEX::TYPE::GROUP_SIZE: {
-                    val_pipe.type = PIPE::TYPE::UINT64;
                     break;
                 }
                 case INDEX::TYPE::EVENT_DESCRIPTOR: {
@@ -697,12 +710,13 @@ bool SOCKETS::init() noexcept {
         }
     }
 
-    int epoll_descriptor = create_epoll();
+    SESSION epoll_session{ create_epoll() };
 
-    if (epoll_descriptor == NO_DESCRIPTOR) {
+    if (!epoll_session.valid) {
         log(
-            "%s: %s (%s:%d)", __FUNCTION__,
-            "epoll jack could not be created", __FILE__, __LINE__
+            "%s: %s, %s (%s:%d)", __FUNCTION__,
+            "epoll jack could not be created", get_code(epoll_session.error),
+            __FILE__, __LINE__
         );
 
         return false;
@@ -730,13 +744,7 @@ bool SOCKETS::deinit() noexcept {
                 )
             };
 
-            if (!close_and_deinit(jack->descriptor)) {
-                // If for some reason we couldn't close the descriptor,
-                // we still need to deallocate the related memmory.
-
-                release(jack);
-                success = false;
-            }
+            close_and_release(*jack);
         }
     }
 
@@ -754,17 +762,17 @@ void SOCKETS::set_memcap(size_t bytes) noexcept {
 }
 
 void SOCKETS::set_intake(
-    int descriptor, size_t bytes, const char *file, int line
+    size_t sid, size_t bytes, const char *file, int line
 ) noexcept {
-    JACK *jack = find_jack(descriptor);
+    JACK *jack = find_jack(make_session(sid));
 
     if (jack) {
         jack->intake = bytes;
     }
-    else log("descriptor %d not found (%s:%d)", descriptor, file, line);
+    else log("session %lu not found (%s:%d)", sid, file, line);
 }
 
-int SOCKETS::listen(
+SOCKETS::SESSION SOCKETS::listen(
     const char *port, int family, const std::initializer_list<int> options,
     int flags
 ) noexcept {
@@ -772,45 +780,45 @@ int SOCKETS::listen(
 }
 
 struct SOCKETS::ALERT SOCKETS::next_alert() noexcept {
-    int d;
+    size_t session;
 
     bitset.unhandled_events = false;
 
-    while (( d = next_connection() ) != NO_DESCRIPTOR) {
-        return make_alert(d, EV_CONNECTION);
+    while (( session = next_connection() ) != 0) {
+        return make_alert(session, EV_CONNECTION);
     }
 
-    while (( d = next_incoming() ) != NO_DESCRIPTOR) {
-        return make_alert(d, EV_INCOMING);
+    while (( session = next_incoming() ) != 0) {
+        return make_alert(session, EV_INCOMING);
     }
 
-    while (( d = next_disconnection() ) != NO_DESCRIPTOR) {
-        return make_alert(d, EV_DISCONNECTION);
+    while (( session = next_disconnection() ) != 0) {
+        return make_alert(session, EV_DISCONNECTION);
     }
 
-    return make_alert(NO_DESCRIPTOR, EV_NONE, false);
+    return make_alert(0, EV_NONE, false);
 }
 
-int SOCKETS::next_connection() noexcept {
+size_t SOCKETS::next_connection() noexcept {
     JACK *const jack = find_jack(EVENT::CONNECTION);
 
     if (jack) {
         rem_event(*jack, EVENT::CONNECTION);
 
-        return jack->descriptor;
+        return jack->id;
     }
 
-    return NO_DESCRIPTOR;
+    return 0;
 }
 
-int SOCKETS::next_disconnection() noexcept {
+size_t SOCKETS::next_disconnection() noexcept {
     if (find_jack(EVENT::CONNECTION)) {
         // We postpone reporting any disconnections until the application
         // has acknowledged all the new incoming connections. This prevents
         // us from reporting a disconnection event before its respective
         // connection event is reported.
 
-        return NO_DESCRIPTOR;
+        return 0;
     }
 
     JACK *const jack = find_jack(EVENT::DISCONNECTION);
@@ -819,74 +827,77 @@ int SOCKETS::next_disconnection() noexcept {
         if (set_event(*jack, EVENT::CLOSE) == ERROR::NONE) {
             rem_event(*jack, EVENT::DISCONNECTION);
 
-            return jack->descriptor;
+            return jack->id;
         }
     }
 
-    return NO_DESCRIPTOR;
+    return 0;
 }
 
-int SOCKETS::next_incoming() noexcept {
+size_t SOCKETS::next_incoming() noexcept {
     JACK *const jack = find_jack(EVENT::INCOMING);
 
     if (jack) {
         rem_event(*jack, EVENT::INCOMING);
 
-        return jack->descriptor;
+        return jack->id;
     }
 
-    return NO_DESCRIPTOR;
+    return 0;
 }
 
 bool SOCKETS::is_listener(const JACK &jack) const noexcept {
     return jack.bitset.listener;
 }
 
-bool SOCKETS::is_listener(int descriptor) const noexcept {
-    const JACK *const jack = find_jack(descriptor);
+bool SOCKETS::is_listener(size_t sid) const noexcept {
+    const JACK *const jack = find_jack(make_session(sid));
     return jack ? is_listener(*jack) : false;
 }
 
-int SOCKETS::get_group(int descriptor) const noexcept {
-    const JACK *const jack = find_jack(descriptor);
-    return jack ? jack->group : 0;
-}
+SOCKETS::SESSION SOCKETS::get_listener(size_t sid) const noexcept {
+    const JACK *const jack = find_jack(make_session(sid));
 
-size_t SOCKETS::get_group_size(int group) const noexcept {
-    INDEX::ENTRY found{find(INDEX::TYPE::GROUP_SIZE, make_key(group))};
-
-    if (found.valid) {
-        return to_uint64(get_value(found));
+    if (!jack) {
+        return make_session(ERROR::NONE);
     }
 
-    return 0;
+    const JACK *const parent = find_jack(jack->parent.descriptor);
+
+    return parent ? make_session(parent->id) : make_session(ERROR::NONE);
 }
 
-int SOCKETS::get_listener(int descriptor) const noexcept {
-    const JACK *const jack = find_jack(descriptor);
-    return jack ? jack->parent.descriptor : NO_DESCRIPTOR;
-}
-
-const char *SOCKETS::get_host(int descriptor) const noexcept {
-    const JACK *const jack = find_jack(descriptor);
+const char *SOCKETS::get_host(size_t session_id) const noexcept {
+    const JACK *const jack = find_jack(make_session(session_id));
     return jack && jack->host.size ? to_char(jack->host) : "";
 }
 
-const char *SOCKETS::get_port(int descriptor) const noexcept {
-    const JACK *const jack = find_jack(descriptor);
+const char *SOCKETS::get_port(size_t session_id) const noexcept {
+    const JACK *const jack = find_jack(make_session(session_id));
     return jack && jack->port.size ? to_char(jack->port) : "";
 }
 
-void SOCKETS::freeze(int descriptor) noexcept {
-    JACK *const jack = find_jack(descriptor);
+SOCKETS::SESSION SOCKETS::get_session(int descriptor) const noexcept {
+    const JACK *const jack = find_jack(descriptor);
+    return jack ? make_session(jack->id) : make_session(0, ERROR::NONE, false);
+}
+
+const int *SOCKETS::get_descriptor(size_t session) const noexcept {
+    const JACK *const jack = find_jack(make_session(session));
+
+    return jack ? &(jack->descriptor) : nullptr;
+}
+
+void SOCKETS::freeze(size_t sid) noexcept {
+    JACK *const jack = find_jack(make_session(sid));
 
     if (jack) {
         jack->bitset.frozen = true;
     }
 }
 
-void SOCKETS::unfreeze(int descriptor) noexcept {
-    JACK *const jack = find_jack(descriptor);
+void SOCKETS::unfreeze(size_t sid) noexcept {
+    JACK *const jack = find_jack(make_session(sid));
 
     if (jack) {
         if (!has_event(*jack, EVENT::DISCONNECTION)
@@ -896,8 +907,8 @@ void SOCKETS::unfreeze(int descriptor) noexcept {
     }
 }
 
-bool SOCKETS::is_frozen(int descriptor) const noexcept {
-    const JACK *const jack = find_jack(descriptor);
+bool SOCKETS::is_frozen(size_t sid) const noexcept {
+    const JACK *const jack = find_jack(make_session(sid));
 
     return jack ? jack->bitset.frozen : false;
 }
@@ -906,14 +917,16 @@ bool SOCKETS::idle() const noexcept {
     return bitset.timeout;
 }
 
-bool SOCKETS::connect(const char *host, const char *port, int group) noexcept {
-    int descriptor = connect(host, port, group, AF_UNSPEC, 0);
-
-    return descriptor != NO_DESCRIPTOR;
+SOCKETS::SESSION SOCKETS::connect(const char *host, const char *port) noexcept {
+    return connect(host, port, AF_UNSPEC, 0);
 }
 
-void SOCKETS::disconnect(int descriptor) noexcept {
-    terminate(descriptor);
+void SOCKETS::disconnect(size_t session_id) noexcept {
+    JACK *jack = find_jack(make_session(session_id));
+
+    if (jack) {
+        terminate(jack->descriptor);
+    }
 }
 
 SOCKETS::ERROR SOCKETS::err(ERROR e) noexcept {
@@ -1015,7 +1028,7 @@ SOCKETS::ERROR SOCKETS::next_error(int timeout) noexcept {
 
             if (jack == nullptr) continue;
 
-            rem_event(*jack, event);
+            rem_event(*jack, event); // TODO: remove when handled successfullly!
 
             ERROR error = ERROR::NONE;
 
@@ -1092,8 +1105,8 @@ SOCKETS::ERROR SOCKETS::next_error(int timeout) noexcept {
     return err(ERROR::NONE);
 }
 
-size_t SOCKETS::incoming(int descriptor) const noexcept {
-    const JACK *const jack = find_jack(descriptor);
+size_t SOCKETS::incoming(size_t sid) const noexcept {
+    const JACK *const jack = find_jack(make_session(sid));
 
     if (jack) {
         return jack->incoming.size;
@@ -1104,8 +1117,8 @@ size_t SOCKETS::incoming(int descriptor) const noexcept {
     return 0;
 }
 
-size_t SOCKETS::outgoing(int descriptor) const noexcept {
-    const JACK *const jack = find_jack(descriptor);
+size_t SOCKETS::outgoing(size_t sid) const noexcept {
+    const JACK *const jack = find_jack(make_session(sid));
 
     if (jack) {
         return jack->outgoing.size;
@@ -1116,10 +1129,10 @@ size_t SOCKETS::outgoing(int descriptor) const noexcept {
     return 0;
 }
 
-size_t SOCKETS::read(int descriptor, void *buf, size_t count) noexcept {
+size_t SOCKETS::read(size_t sid, void *buf, size_t count) noexcept {
     if (!count) return 0;
 
-    JACK *const jack = find_jack(descriptor);
+    JACK *const jack = find_jack(make_session(sid));
 
     if (!jack) {
         bug();
@@ -1148,8 +1161,8 @@ size_t SOCKETS::read(int descriptor, void *buf, size_t count) noexcept {
     return count;
 }
 
-const char *SOCKETS::read(int descriptor) noexcept {
-    JACK *const jack = find_jack(descriptor);
+const char *SOCKETS::read(size_t sid) noexcept {
+    JACK *const jack = find_jack(make_session(sid));
 
     if (!jack || jack->incoming.size == 0) {
         return "";
@@ -1163,7 +1176,7 @@ const char *SOCKETS::read(int descriptor) noexcept {
 
     size_t count{
         read(
-            descriptor, to_uint8(buffer),
+            sid, to_uint8(buffer),
             std::min(buffer.capacity - 1, jack->incoming.size)
         )
     };
@@ -1175,9 +1188,9 @@ const char *SOCKETS::read(int descriptor) noexcept {
 }
 
 SOCKETS::ERROR SOCKETS::write(
-    int descriptor, const void *buf, size_t count
+    size_t sid, const void *buf, size_t count
 ) noexcept {
-    JACK *const jack = find_jack(descriptor);
+    JACK *const jack = find_jack(make_session(sid));
 
     if (!jack) {
         bug();
@@ -1203,11 +1216,11 @@ SOCKETS::ERROR SOCKETS::write(
     return ERROR::NONE;
 }
 
-SOCKETS::ERROR SOCKETS::write(int descriptor, const char *text) noexcept {
-    return write(descriptor, text, std::strlen(text));
+SOCKETS::ERROR SOCKETS::write(size_t sid, const char *text) noexcept {
+    return write(sid, text, std::strlen(text));
 }
 
-SOCKETS::ERROR SOCKETS::writef(int descriptor, const char *fmt, ...) noexcept {
+SOCKETS::ERROR SOCKETS::writef(size_t sid, const char *fmt, ...) noexcept {
     char stackbuf[1024];
 
     std::va_list args;
@@ -1224,7 +1237,7 @@ SOCKETS::ERROR SOCKETS::writef(int descriptor, const char *fmt, ...) noexcept {
         return die();
     }
 
-    JACK &jack = get_jack(descriptor);
+    JACK &jack = get_jack(make_session(sid));
 
     if (size_t(retval) < sizeof(stackbuf)) {
         const PIPE wrapper{
@@ -1363,27 +1376,25 @@ SOCKETS::ERROR SOCKETS::die(const char *file, int line) const noexcept {
 }
 
 SOCKETS::ERROR SOCKETS::handle_close(JACK &jack) noexcept {
-    int descriptor = jack.descriptor;
-
     if (jack.bitset.reconnect) {
-        int new_descriptor = connect(
-            get_host(descriptor), get_port(descriptor),
-            get_group(descriptor), jack.ai_family, jack.ai_flags, jack.blacklist
-        );
+        bool success = false;
+        SESSION new_session{
+            connect(
+                get_host(jack.id), get_port(jack.id),
+                jack.ai_family, jack.ai_flags, jack.blacklist
+            )
+        };
 
-        if (new_descriptor == NO_DESCRIPTOR) {
-            jack.bitset.reconnect = false;
-        }
-        else {
-            JACK &new_jack = get_jack(new_descriptor);
+        if (new_session.valid) {
+            JACK &new_jack = get_jack(new_session);
 
-            struct addrinfo *blacklist = new_jack.blacklist;
-
-            if (!blacklist) {
-                blacklist = jack.blacklist;
+            if (new_jack.blacklist == nullptr) {
+                new_jack.blacklist = jack.blacklist;
                 jack.blacklist = nullptr;
             }
             else {
+                struct addrinfo *blacklist = new_jack.blacklist;
+
                 for (;; blacklist = blacklist->ai_next) {
                     if (blacklist->ai_next == nullptr) {
                         blacklist->ai_next = jack.blacklist;
@@ -1392,6 +1403,40 @@ SOCKETS::ERROR SOCKETS::handle_close(JACK &jack) noexcept {
                     }
                 }
             }
+
+            // Let's swap the session IDs of these jacks so that the original
+            // session ID would prevail.
+
+            INDEX::ENTRY old_session_entry{
+                find(INDEX::TYPE::SESSION_JACK, make_key(jack.id))
+            };
+
+            INDEX::ENTRY new_session_entry{
+                find(INDEX::TYPE::SESSION_JACK, make_key(new_jack.id))
+            };
+
+            if (old_session_entry.valid && new_session_entry.valid) {
+                set_value(old_session_entry, make_pipe_entry(&new_jack));
+                set_value(new_session_entry, make_pipe_entry(&jack));
+                std::swap(jack.id, new_jack.id);
+                success = true;
+            }
+            else {
+                bug();
+                close_and_release(new_jack);
+            }
+        }
+        else if (new_session.error != ERROR::NONE) {
+            if (new_session.error == ERROR::OUT_OF_MEMORY) {
+                set_event(jack, EVENT::CLOSE);
+
+                return new_session.error;
+            }
+            else log(new_session.error);
+        }
+
+        if (!success) {
+            jack.bitset.reconnect = false;
         }
     }
 
@@ -1408,10 +1453,7 @@ SOCKETS::ERROR SOCKETS::handle_close(JACK &jack) noexcept {
         return ERROR::NONE;
     }
 
-    if (!close_and_deinit(descriptor)) {
-        release(&jack);
-        return ERROR::FORBIDDEN_CONDITION;
-    }
+    close_and_release(jack);
 
     return ERROR::NONE;
 }
@@ -1842,22 +1884,16 @@ SOCKETS::ERROR SOCKETS::handle_accept(JACK &jack) noexcept {
 
         // Something has gone terribly wrong.
 
-        if (!close_and_deinit(descriptor)) {
-            release(find_jack(descriptor));
-        }
-
         return ERROR::FORBIDDEN_CONDITION;
     }
 
-    ERROR error{capture(make_jack(client_descriptor, descriptor, 0))};
+    SESSION session{capture(make_jack(client_descriptor, descriptor))};
 
-    if (error != ERROR::NONE) {
-        if (!close_and_deinit(client_descriptor)) {
-            release(find_jack(client_descriptor));
-        }
-
+    if (!session.valid) {
+        log(session.error);
+        close_descriptor(client_descriptor);
         set_event(jack, EVENT::ACCEPT);
-        return error;
+        return session.error;
     }
 
     JACK &client_jack = get_jack(client_descriptor);
@@ -1878,9 +1914,7 @@ SOCKETS::ERROR SOCKETS::handle_accept(JACK &jack) noexcept {
             __FILE__, __LINE__
         );
 
-        if (!close_and_deinit(client_descriptor)) {
-            release(find_jack(client_descriptor));
-        }
+        close_and_release(client_jack);
 
         return ERROR::FORBIDDEN_CONDITION;
     }
@@ -1895,11 +1929,9 @@ SOCKETS::ERROR SOCKETS::handle_accept(JACK &jack) noexcept {
             ERROR error{ copy(host_wrapper, client_jack.host) };
 
             if (error != ERROR::NONE) {
-                if (!close_and_deinit(client_descriptor)) {
-                    release(find_jack(client_descriptor));
-                }
-
+                close_and_release(client_jack);
                 set_event(jack, EVENT::ACCEPT);
+
                 return error;
             }
         }
@@ -1914,11 +1946,9 @@ SOCKETS::ERROR SOCKETS::handle_accept(JACK &jack) noexcept {
             ERROR error{ copy(port_wrapper, client_jack.port) };
 
             if (error != ERROR::NONE) {
-                if (!close_and_deinit(client_descriptor)) {
-                    release(find_jack(client_descriptor));
-                }
-
+                close_and_release(client_jack);
                 set_event(jack, EVENT::ACCEPT);
+
                 return error;
             }
         }
@@ -1947,9 +1977,7 @@ SOCKETS::ERROR SOCKETS::handle_accept(JACK &jack) noexcept {
             );
         }
 
-        if (!close_and_deinit(client_descriptor)) {
-            release(&client_jack);
-        }
+        close_and_release(client_jack);
 
         return ERROR::FORBIDDEN_CONDITION;
     }
@@ -1965,31 +1993,24 @@ SOCKETS::ERROR SOCKETS::handle_accept(JACK &jack) noexcept {
     return handle_accept(jack);
 }
 
-int SOCKETS::connect(
-    const char *host, const char *port, int group, int ai_family, int ai_flags,
+SOCKETS::SESSION SOCKETS::connect(
+    const char *host, const char *port, int ai_family, int ai_flags,
     const struct addrinfo *blacklist, const char *file, int line
 ) noexcept {
     int epoll_descriptor = get_epoll_jack().descriptor;
 
-    int descriptor{
-        open_and_init(
+    SESSION session{
+        open_and_capture(
             host, port, ai_family, ai_flags, {}, blacklist, file, line
         )
     };
 
-    if (descriptor == NO_DESCRIPTOR) {
-        return NO_DESCRIPTOR;
+    if (!session.valid) {
+        return session;
     }
 
-    if (set_group(descriptor, group) != ERROR::NONE) {
-        if (!close_and_deinit(descriptor)) {
-            release(find_jack(descriptor));
-        }
-
-        return NO_DESCRIPTOR;
-    }
-
-    JACK &jack = get_jack(descriptor);
+    JACK &jack = get_jack(session);
+    const int descriptor = jack.descriptor;
 
     const PIPE host_wrapper{
         make_pipe(
@@ -2001,11 +2022,9 @@ int SOCKETS::connect(
         ERROR error{ copy(host_wrapper, jack.host) };
 
         if (error != ERROR::NONE) {
-            if (!close_and_deinit(descriptor)) {
-                release(find_jack(descriptor));
-            }
+            close_and_release(jack);
 
-            return NO_DESCRIPTOR; // TODO: return error instead
+            return make_session(error);
         }
     }
 
@@ -2019,20 +2038,16 @@ int SOCKETS::connect(
         ERROR error{ copy(port_wrapper, jack.port) };
 
         if (error != ERROR::NONE) {
-            if (!close_and_deinit(descriptor)) {
-                release(find_jack(descriptor));
-            }
+            close_and_release(jack);
 
-            return NO_DESCRIPTOR; // TODO: return error instead
+            return make_session(error);
         }
     }
 
     if (!bind_to_epoll(descriptor, epoll_descriptor)) {
-        if (!close_and_deinit(descriptor)) {
-            release(&jack);
-        }
+        close_and_release(jack);
 
-        return NO_DESCRIPTOR;
+        return make_session(ERROR::UNSPECIFIED);
     }
 
     if (jack.bitset.connecting) {
@@ -2043,12 +2058,10 @@ int SOCKETS::connect(
         set_event(jack, EVENT::CONNECTION);
     }
 
-    return descriptor;
+    return session;
 }
 
 void SOCKETS::terminate(int descriptor, const char *file, int line) noexcept {
-    if (descriptor == NO_DESCRIPTOR) return;
-
     JACK &jack = get_jack(descriptor);
 
     if (has_event(jack, EVENT::CLOSE)
@@ -2096,15 +2109,16 @@ void SOCKETS::terminate(int descriptor, const char *file, int line) noexcept {
     }
 }
 
-int SOCKETS::listen(
+SOCKETS::SESSION SOCKETS::listen(
     const char *host, const char *port, int ai_family, int ai_flags,
     const std::initializer_list<int> options, const char *file, int line
 ) noexcept {
-    int epoll_descriptor = get_epoll_jack().descriptor;
-    int descriptor = open_and_init(host, port, ai_family, ai_flags, options);
+    SESSION session{open_and_capture(host, port, ai_family, ai_flags, options)};
 
-    if (descriptor == NO_DESCRIPTOR) return NO_DESCRIPTOR;
+    if (!session.valid) return session;
 
+    JACK &jack = get_jack(session);
+    const int descriptor = jack.descriptor;
     int retval = ::listen(descriptor, SOMAXCONN);
 
     if (retval != 0) {
@@ -2121,22 +2135,18 @@ int SOCKETS::listen(
             );
         }
 
-        if (!close_and_deinit(descriptor)) {
-            release(find_jack(descriptor));
-        }
+        close_and_release(jack);
 
-        return NO_DESCRIPTOR;
+        return make_session(ERROR::UNSPECIFIED);
     }
+
+    const int epoll_descriptor = get_epoll_jack().descriptor;
 
     if (!bind_to_epoll(descriptor, epoll_descriptor)) {
-        if (!close_and_deinit(descriptor)) {
-            release(find_jack(descriptor));
-        }
+        close_and_release(jack);
 
-        return NO_DESCRIPTOR;
+        return make_session(ERROR::UNSPECIFIED);
     }
-
-    JACK &jack = get_jack(descriptor);
 
     set_event(jack, EVENT::ACCEPT);
 
@@ -2164,11 +2174,9 @@ int SOCKETS::listen(
             );
         }
 
-        if (!close_and_deinit(descriptor)) {
-            release(find_jack(descriptor));
-        }
+        close_and_release(jack);
 
-        return NO_DESCRIPTOR;
+        return make_session(ERROR::UNSPECIFIED);
     }
 
     char host_buf[NI_MAXHOST];
@@ -2187,11 +2195,9 @@ int SOCKETS::listen(
             __FILE__, __LINE__
         );
 
-        if (!close_and_deinit(descriptor)) {
-            release(find_jack(descriptor));
-        }
+        close_and_release(jack);
 
-        return NO_DESCRIPTOR;
+        return make_session(ERROR::UNSPECIFIED);
     }
 
     const PIPE host_wrapper{
@@ -2205,12 +2211,9 @@ int SOCKETS::listen(
         ERROR error{ copy(host_wrapper, jack.host) };
 
         if (error != ERROR::NONE) {
-            if (!close_and_deinit(descriptor)) {
-                release(find_jack(descriptor));
-            }
+            close_and_release(jack);
 
-            // TODO: return error;
-            return NO_DESCRIPTOR;
+            return make_session(error);
         }
     }
 
@@ -2225,19 +2228,16 @@ int SOCKETS::listen(
         ERROR error{ copy(port_wrapper, jack.port) };
 
         if (error != ERROR::NONE) {
-            if (!close_and_deinit(descriptor)) {
-                release(find_jack(descriptor));
-            }
+            close_and_release(jack);
 
-            // TODO: return error;
-            return NO_DESCRIPTOR;
+            return make_session(error);
         }
     }
 
-    return descriptor;
+    return session;
 }
 
-int SOCKETS::create_epoll() noexcept {
+SOCKETS::SESSION SOCKETS::create_epoll() noexcept {
     int epoll_descriptor = epoll_create1(0);
 
     if (epoll_descriptor < 0) {
@@ -2256,19 +2256,16 @@ int SOCKETS::create_epoll() noexcept {
             );
         }
 
-        return NO_DESCRIPTOR;
+        return make_session(ERROR::UNSPECIFIED);
     }
 
-    {
-        ERROR error{capture(make_jack(epoll_descriptor, NO_DESCRIPTOR, 0))};
+    SESSION session{capture(make_jack(epoll_descriptor))};
 
-        if (error != ERROR::NONE) {
-            if (!close_and_deinit(epoll_descriptor)) {
-                release(find_jack(epoll_descriptor));
-            }
+    if (!session.valid) {
+        log(session.error);
+        close_descriptor(epoll_descriptor);
 
-            return NO_DESCRIPTOR;
-        }
+        return make_session(session.error);
     }
 
     JACK &jack = get_jack(epoll_descriptor);
@@ -2278,12 +2275,9 @@ int SOCKETS::create_epoll() noexcept {
 
         if (error != ERROR::NONE) {
             log(error);
+            close_and_release(jack);
 
-            if (!close_and_deinit(epoll_descriptor)) {
-                release(&jack);
-            }
-
-            return NO_DESCRIPTOR;
+            return make_session(error);
         }
 
         jack.epoll_ev.size = jack.epoll_ev.capacity;
@@ -2291,12 +2285,10 @@ int SOCKETS::create_epoll() noexcept {
 
     set_event(jack, EVENT::EPOLL);
 
-    return epoll_descriptor;
+    return session;
 }
 
 bool SOCKETS::bind_to_epoll(int descriptor, int epoll_descriptor) noexcept {
-    if (descriptor == NO_DESCRIPTOR) return NO_DESCRIPTOR;
-
     epoll_event event{
         make_epoll_event(descriptor, EPOLLIN|EPOLLET|EPOLLRDHUP)
     };
@@ -2326,7 +2318,7 @@ bool SOCKETS::bind_to_epoll(int descriptor, int epoll_descriptor) noexcept {
     return true;
 }
 
-int SOCKETS::open_and_init(
+SOCKETS::SESSION SOCKETS::open_and_capture(
     const char *host, const char *port, int ai_family, int ai_flags,
     const std::initializer_list<int> options,
     const struct addrinfo *blacklist, const char *file, int line
@@ -2352,9 +2344,10 @@ int SOCKETS::open_and_init(
     struct addrinfo *next = nullptr;
     struct addrinfo *prev = nullptr;
 
-    int descriptor = NO_DESCRIPTOR;
-    int retval = getaddrinfo(host, port, &hint, &info);
+    JACK *jack = nullptr;
+    ERROR error = ERROR::NONE;
 
+    int retval = getaddrinfo(host, port, &hint, &info);
     if (retval != 0) {
         log("getaddrinfo: %s (%s:%d)", gai_strerror(retval), file, line);
 
@@ -2366,22 +2359,23 @@ int SOCKETS::open_and_init(
             continue;
         }
 
-        if (accept_incoming_connections) {
-            descriptor = socket(
-                next->ai_family,
-                next->ai_socktype|SOCK_NONBLOCK|SOCK_CLOEXEC,
-                next->ai_protocol
-            );
-        }
-        else {
-            descriptor = socket(
-                next->ai_family,
-                next->ai_socktype|SOCK_CLOEXEC|(
-                    establish_nonblocking_connections ? SOCK_NONBLOCK : 0
-                ),
-                next->ai_protocol
-            );
-        }
+        int descriptor{
+            accept_incoming_connections ? (
+                socket(
+                    next->ai_family,
+                    next->ai_socktype|SOCK_NONBLOCK|SOCK_CLOEXEC,
+                    next->ai_protocol
+                )
+            ) : (
+                socket(
+                    next->ai_family,
+                    next->ai_socktype|SOCK_CLOEXEC|(
+                        establish_nonblocking_connections ? SOCK_NONBLOCK : 0
+                    ),
+                    next->ai_protocol
+                )
+            )
+        };
 
         if (descriptor == -1) {
             int code = errno;
@@ -2391,17 +2385,22 @@ int SOCKETS::open_and_init(
             continue;
         }
 
-        JACK *jack = nullptr;
+        SESSION session{capture(make_jack(descriptor))};
+        error = session.error;
 
-        ERROR error{capture(make_jack(descriptor, NO_DESCRIPTOR, 0))};
-
-        if (error == ERROR::NONE) {
+        if (session.valid) {
             jack = &get_jack(descriptor);
             jack->ai_family = ai_family;
             jack->ai_flags  = ai_flags;
         }
+        else {
+            log(error);
+            close_descriptor(descriptor);
 
-        if (jack && accept_incoming_connections) {
+            continue;
+        }
+
+        if (accept_incoming_connections) {
             bool success = true;
 
             for (int option : options) {
@@ -2456,7 +2455,7 @@ int SOCKETS::open_and_init(
                 else break;
             }
         }
-        else if (jack) {
+        else {
             // Let's block all signals before calling connect because we
             // don't want it to fail due to getting interrupted by a singal.
 
@@ -2533,58 +2532,95 @@ int SOCKETS::open_and_init(
             }
         }
 
-        if (!close_and_deinit(descriptor)) {
-            log(
-                "failed to close descriptor %d (%s:%d)", descriptor,
-                __FILE__, __LINE__
-            );
+        close_and_release(*jack);
 
-            release(find_jack(descriptor));
-        }
-
-        descriptor = NO_DESCRIPTOR;
+        jack = nullptr;
     }
 
     CleanUp:
     if (info) freeaddrinfo(info);
 
-    return descriptor;
+    return jack ? make_session(jack->id) : make_session(error);
 }
 
-size_t SOCKETS::close_and_deinit(int descriptor) noexcept {
-    // Returns the number of descriptors successfully closed as a result.
-
-    if (descriptor == NO_DESCRIPTOR) {
-        log(
-            "unexpected descriptor %d (%s:%d)", descriptor,
-            __FILE__, __LINE__
-        );
-
-        return 0;
-    }
-
+void SOCKETS::close_descriptor(int descriptor) noexcept {
     // Let's block all signals before calling close because we don't
     // want it to fail due to getting interrupted by a singal.
+
     int retval = sigprocmask(SIG_SETMASK, &sigset_all, &sigset_orig);
     if (retval == -1) {
         int code = errno;
-        log(
-            "sigprocmask: %s (%s:%d)", strerror(code),
-            __FILE__, __LINE__
-        );
-        return 0;
+        log("sigprocmask: %s (%s:%d)", strerror(code), __FILE__, __LINE__);
+        die();
+
+        return;
     }
     else if (retval) {
         log(
             "sigprocmask: unexpected return value %d (%s:%d)", retval,
             __FILE__, __LINE__
         );
+        die();
 
-        return 0;
+        return;
     }
 
-    size_t closed = 0;
-    JACK &jack = get_jack(descriptor);
+    retval = close(descriptor);
+    if (retval) {
+        if (retval == -1) {
+            int code = errno;
+
+            log(
+                "close(%d): %s (%s:%d)", descriptor, strerror(code),
+                __FILE__, __LINE__
+            );
+        }
+        else {
+            log(
+                "close(%d): unexpected return value %d (%s:%d)",
+                descriptor, retval, __FILE__, __LINE__
+            );
+        }
+    }
+
+    retval = sigprocmask(SIG_SETMASK, &sigset_orig, nullptr);
+    if (retval == -1) {
+        int code = errno;
+        log("sigprocmask: %s (%s:%d)", strerror(code), __FILE__, __LINE__);
+        die();
+    }
+    else if (retval) {
+        log(
+            "sigprocmask: unexpected return value %d (%s:%d)", retval,
+            __FILE__, __LINE__
+        );
+        die();
+    }
+}
+
+void SOCKETS::close_and_release(JACK &jack) noexcept {
+    // Let's block all signals before calling close because we don't
+    // want it to fail due to getting interrupted by a singal.
+    int retval = sigprocmask(SIG_SETMASK, &sigset_all, &sigset_orig);
+    if (retval == -1) {
+        int code = errno;
+        log(
+            "sigprocmask: %s (%s:%d)", strerror(code), __FILE__, __LINE__
+        );
+        die();
+
+        return;
+    }
+    else if (retval) {
+        log(
+            "sigprocmask: unexpected return value %d (%s:%d)", retval,
+            __FILE__, __LINE__
+        );
+        die();
+
+        return;
+    }
+
     JACK *last = &jack;
 
     for (;;) {
@@ -2618,7 +2654,6 @@ size_t SOCKETS::close_and_deinit(int descriptor) noexcept {
                 );
             }
         }
-        else ++closed;
 
         release(last);
 
@@ -2635,37 +2670,35 @@ size_t SOCKETS::close_and_deinit(int descriptor) noexcept {
         log(
             "sigprocmask: %s (%s:%d)", strerror(code), __FILE__, __LINE__
         );
+        die();
     }
     else if (retval) {
         log(
             "sigprocmask: unexpected return value %d (%s:%d)", retval,
             __FILE__, __LINE__
         );
+        die();
     }
-
-    return closed;
 }
 
-SOCKETS::ERROR SOCKETS::capture(const JACK &copy) noexcept {
-    if (copy.descriptor == NO_DESCRIPTOR) {
+SOCKETS::SESSION SOCKETS::capture(const JACK &copy) noexcept {
+    if (!is_descriptor(copy.descriptor)) {
         die();
     }
 
     PIPE *siblings = nullptr;
 
-    if (copy.parent.descriptor != NO_DESCRIPTOR) {
+    if (is_descriptor(copy.parent.descriptor)) {
         siblings = &get_jack(copy.parent.descriptor).children;
 
         ERROR error{ insert(*siblings, make_pipe_entry(copy.descriptor)) };
 
         if (error != ERROR::NONE) {
-            return error;
+            return make_session(error);
         }
     }
 
     int descriptor = copy.descriptor;
-    int group = copy.group;
-
     JACK *const jack = new_jack(&copy);
 
     if (!jack) {
@@ -2673,29 +2706,12 @@ SOCKETS::ERROR SOCKETS::capture(const JACK &copy) noexcept {
             pop_back(*siblings);
         }
 
-        return ERROR::OUT_OF_MEMORY;
-    }
-
-    INDEX::ENTRY entry{
-        insert(
-            INDEX::TYPE::DESCRIPTOR_JACK,
-            make_key(descriptor), make_pipe_entry(jack)
-        )
-    };
-
-    if (!entry.valid) {
-        if (siblings) {
-            pop_back(*siblings);
-        }
-
-        recycle(get_memory(jack));
-
-        return entry.error;
+        return make_session(ERROR::OUT_OF_MEMORY);
     }
 
     if (siblings) {
         if (!siblings->size) {
-            return die();
+            return make_session(die());
         }
 
         size_t index = siblings->size - 1;
@@ -2704,7 +2720,7 @@ SOCKETS::ERROR SOCKETS::capture(const JACK &copy) noexcept {
         };
 
         if (index > max_index) {
-            return die();
+            return make_session(die());
         }
 
         jack->parent.child_index = (
@@ -2712,14 +2728,49 @@ SOCKETS::ERROR SOCKETS::capture(const JACK &copy) noexcept {
         );
     }
 
-    {
-        // If the newly pushed jack has not its group set to zero at first, then
-        // set_group would falsely reduce the group size.
+    jack->id = last_jack_id + 1;
 
-        jack->group = 0;
+    ERROR error = ERROR::NONE;
+
+    for (;;) {
+        {
+            INDEX::ENTRY entry{
+                insert(
+                    INDEX::TYPE::SESSION_JACK,
+                    make_key(jack->id), make_pipe_entry(jack)
+                )
+            };
+
+            if (!entry.valid) {
+                error = entry.error;
+                break;
+            }
+        }
+
+        {
+            INDEX::ENTRY entry{
+                insert(
+                    INDEX::TYPE::DESCRIPTOR_JACK,
+                    make_key(descriptor), make_pipe_entry(jack)
+                )
+            };
+
+            if (!entry.valid) {
+                error = entry.error;
+                break;
+            }
+        }
+
+        break;
     }
 
-    return set_group(descriptor, group);
+    if (!error) {
+        return make_session( (last_jack_id = jack->id) );
+    }
+
+    release(jack);
+
+    return make_session(error);
 }
 
 void SOCKETS::release(JACK *jack) noexcept {
@@ -2731,7 +2782,7 @@ void SOCKETS::release(JACK *jack) noexcept {
         rem_event(*jack, static_cast<EVENT>(&ev - &(jack->event_lookup[0])));
     }
 
-    if (jack->parent.descriptor != NO_DESCRIPTOR) {
+    if (is_descriptor(jack->parent.descriptor)) {
         rem_child(get_jack(jack->parent.descriptor), *jack);
     }
 
@@ -2750,13 +2801,8 @@ void SOCKETS::release(JACK *jack) noexcept {
         freeaddrinfo(jack->blacklist);
     }
 
-    rem_group(jack->descriptor);
-
-    size_t erased{
-        erase(INDEX::TYPE::DESCRIPTOR_JACK, make_key(jack->descriptor))
-    };
-
-    if (!erased) die();
+    erase(INDEX::TYPE::DESCRIPTOR_JACK, make_key(jack->descriptor));
+    erase(INDEX::TYPE::SESSION_JACK,    make_key(jack->id));
 
     recycle(get_memory(jack));
 }
@@ -2766,6 +2812,22 @@ SOCKETS::JACK *SOCKETS::find_jack(
 ) const noexcept {
     INDEX::ENTRY entry{
         find(INDEX::TYPE::DESCRIPTOR_JACK, make_key(descriptor))
+    };
+
+    if (!entry.valid) {
+        return nullptr;
+    }
+
+    return to_jack(get_entry(*entry.val_pipe, entry.index));
+}
+
+SOCKETS::JACK *SOCKETS::find_jack(
+    SESSION session //TODO: refactor so that size_t could be used directly
+) const noexcept {
+    if (!session.valid) return nullptr;
+
+    INDEX::ENTRY entry{
+        find(INDEX::TYPE::SESSION_JACK, make_key(session.id))
     };
 
     if (!entry.valid) {
@@ -2794,6 +2856,14 @@ SOCKETS::JACK *SOCKETS::find_epoll_jack() const noexcept {
 
 SOCKETS::JACK &SOCKETS::get_jack(int descriptor) const noexcept {
     JACK *const rec = find_jack(descriptor);
+
+    if (!rec) die();
+
+    return *rec;
+}
+
+SOCKETS::JACK &SOCKETS::get_jack(SESSION session) const noexcept {
+    JACK *const rec = find_jack(session);
 
     if (!rec) die();
 
@@ -2991,53 +3061,6 @@ bool SOCKETS::modify_epoll(int descriptor, uint32_t events) noexcept {
     return true;
 }
 
-SOCKETS::ERROR SOCKETS::set_group(int descriptor, int group) noexcept {
-    JACK &jack = get_jack(descriptor);
-
-    INDEX::ENTRY found{find(INDEX::TYPE::GROUP_SIZE, make_key(jack.group))};
-
-    if (found.valid) {
-        if (found.val_pipe->type == PIPE::TYPE::UINT64) {
-            uint64_t &value = to_uint64(*found.val_pipe)[found.index];
-
-            if (--value == 0) {
-                erase(INDEX::TYPE::GROUP_SIZE, make_key(jack.group));
-            }
-        }
-        else die();
-    }
-
-    jack.group = group;
-
-    if (group == 0) {
-        // 0 stands for no group. We don't keep track of its size.
-        return ERROR::NONE;
-    }
-
-    found = find(INDEX::TYPE::GROUP_SIZE, make_key(group));
-
-    if (found.valid) {
-        if (found.val_pipe->type == PIPE::TYPE::UINT64) {
-            uint64_t &value = to_uint64(*found.val_pipe)[found.index];
-            ++value;
-        }
-        else die();
-    }
-    else {
-        return insert(
-            INDEX::TYPE::GROUP_SIZE, make_key(group), make_pipe_entry(1)
-        ).error;
-    }
-
-    return ERROR::NONE;
-}
-
-void SOCKETS::rem_group(int descriptor) noexcept {
-    if (set_group(descriptor, 0) != ERROR::NONE) {
-        die(); // Removing descriptor from its group should never fail.
-    }
-}
-
 SOCKETS::ERROR SOCKETS::set_event(
     JACK &jack, EVENT event, bool value
 ) noexcept {
@@ -3052,9 +3075,9 @@ SOCKETS::ERROR SOCKETS::set_event(
         return die();
     }
 
-    uint32_t pos = jack.event_lookup[index];
+    unsigned pos = jack.event_lookup[index];
 
-    if (pos != std::numeric_limits<uint32_t>::max()) {
+    if (pos != std::numeric_limits<unsigned>::max()) {
         return ERROR::NONE; // Already set.
     }
 
@@ -3066,11 +3089,11 @@ SOCKETS::ERROR SOCKETS::set_event(
     };
 
     if (entry.valid) {
-        if (entry.index >= std::numeric_limits<uint32_t>::max()) {
+        if (entry.index >= std::numeric_limits<unsigned>::max()) {
             die(); // the number of descriptors is limited by the max of int.
         }
 
-        jack.event_lookup[index] = uint32_t(entry.index);
+        jack.event_lookup[index] = unsigned(entry.index);
         return ERROR::NONE;
     }
 
@@ -3084,9 +3107,9 @@ void SOCKETS::rem_event(JACK &jack, EVENT event) noexcept {
         die();
     }
 
-    uint32_t pos = jack.event_lookup[index];
+    unsigned pos = jack.event_lookup[index];
 
-    if (pos == std::numeric_limits<uint32_t>::max()) {
+    if (pos == std::numeric_limits<unsigned>::max()) {
         return;
     }
 
@@ -3109,7 +3132,7 @@ void SOCKETS::rem_event(JACK &jack, EVENT event) noexcept {
         get_jack(other_descriptor).event_lookup[index] = pos;
     }
 
-    jack.event_lookup[index] = std::numeric_limits<uint32_t>::max();
+    jack.event_lookup[index] = std::numeric_limits<unsigned>::max();
 }
 
 bool SOCKETS::has_event(const JACK &jack, EVENT event) const noexcept {
@@ -3119,9 +3142,9 @@ bool SOCKETS::has_event(const JACK &jack, EVENT event) const noexcept {
         return false;
     }
 
-    uint32_t pos = jack.event_lookup[index];
+    unsigned pos = jack.event_lookup[index];
 
-    if (pos != std::numeric_limits<uint32_t>::max()) {
+    if (pos != std::numeric_limits<unsigned>::max()) {
         return true;
     }
 
@@ -3151,7 +3174,7 @@ void SOCKETS::rem_child(JACK &jack, JACK &child) const noexcept {
         );
     }
 
-    child.parent.descriptor = NO_DESCRIPTOR;
+    child.parent.descriptor = -1;
     child.parent.child_index = -1;
 }
 
@@ -3762,6 +3785,7 @@ void SOCKETS::destroy_and_delete(INDEX::TABLE *tables, size_t count) noexcept {
 }
 
 SOCKETS::MEMORY *SOCKETS::allocate(size_t requested_byte_count) noexcept {
+    //TODO: if memcap is met, try to deallocate before reporting OOM
     size_t byte_count = next_pow2(requested_byte_count);
 
     const size_t total_size = sizeof(MEMORY) + byte_count;
@@ -3882,12 +3906,13 @@ SOCKETS::JACK *SOCKETS::new_jack(const JACK *copy) noexcept {
 }
 
 constexpr SOCKETS::JACK SOCKETS::make_jack(
-    int descriptor, int parent, int group
+    int descriptor, int parent
 ) noexcept {
 #if __cplusplus <= 201703L
     __extension__
 #endif
     JACK jack{
+        .id           = 0,
         .intake       = std::numeric_limits<size_t>::max(),
         .event_lookup = {},
         .epoll_ev     = { make_pipe(PIPE::TYPE::EPOLL_EVENT) },
@@ -3898,7 +3923,6 @@ constexpr SOCKETS::JACK SOCKETS::make_jack(
         .port         = { make_pipe(PIPE::TYPE::UINT8) },
         .descriptor   = descriptor,
         .parent       = { .descriptor = parent, .child_index = -1 },
-        .group        = group,
         .ai_family    = 0,
         .ai_flags     = 0,
         .blacklist    = nullptr,
@@ -3906,24 +3930,42 @@ constexpr SOCKETS::JACK SOCKETS::make_jack(
     };
 
     for (auto &lookup_value : jack.event_lookup) {
-        lookup_value = std::numeric_limits<uint32_t>::max();
+        lookup_value = std::numeric_limits<unsigned>::max();
     }
 
     return jack;
 }
 
 constexpr SOCKETS::ALERT SOCKETS::make_alert(
-    int descriptor, EVENT event, bool valid
+    size_t session, EVENT event, bool valid
 ) noexcept {
     return
 #if __cplusplus <= 201703L
     __extension__
 #endif
     ALERT{
-        .descriptor = descriptor,
+        .session = session,
         .event = event,
         .valid = valid
     };
+}
+
+constexpr SOCKETS::SESSION SOCKETS::make_session(
+    size_t id, ERROR error, bool valid
+) noexcept {
+    return
+#if __cplusplus <= 201703L
+    __extension__
+#endif
+    SESSION{
+        .id    = id,
+        .error = error,
+        .valid = valid
+    };
+}
+
+constexpr SOCKETS::SESSION SOCKETS::make_session(ERROR error) noexcept {
+    return make_session(0, error, false);
 }
 
 constexpr struct SOCKETS::INDEX::ENTRY SOCKETS::make_index_entry(
@@ -4135,6 +4177,10 @@ bool SOCKETS::is_listed(const addrinfo &info, const addrinfo *list) noexcept {
     return false;
 }
 
+constexpr bool SOCKETS::is_descriptor(int d) noexcept {
+    return d >= 0;
+}
+
 const char *SOCKETS::get_code(ERROR error) noexcept {
     switch (error) {
         case ERROR::NONE:                return "NONE";
@@ -4142,6 +4188,7 @@ const char *SOCKETS::get_code(ERROR error) noexcept {
         case ERROR::UNDEFINED_BEHAVIOR:  return "UNDEFINED_BEHAVIOR";
         case ERROR::FORBIDDEN_CONDITION: return "FORBIDDEN_CONDITION";
         case ERROR::UNHANDLED_EVENTS:    return "UNHANDLED_EVENTS";
+        case ERROR::UNSPECIFIED:         return "UNSPECIFIED";
     }
 
     return "UNKNOWN_ERROR";
