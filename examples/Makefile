@@ -3,7 +3,7 @@ CC      = g++
 PROF    = -O0 -g -rdynamic
 C_FLAGS = -std=c++17 -Wall -Wextra -pedantic-errors -Wconversion \
           -Wno-unused-parameter -fmax-errors=5 -fno-exceptions
-L_FLAGS = -lm -lstdc++
+L_FLAGS = -lm -lstdc++ -lpthread
 SRC_DIR = src
 OUT_DIR = bin
 

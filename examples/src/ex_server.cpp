@@ -21,7 +21,7 @@ int main(int argc, char **argv) {
     printf("Initializing networking using SOCKETS v%s.\n", SOCKETS::VERSION);
 
     sockets.set_logger(
-        [](const char *txt) noexcept {
+        [](SOCKETS::SESSION, const char *txt) noexcept {
             printf("Sockets: %s\n", txt);
         }
     );
@@ -67,10 +67,10 @@ int main(int argc, char **argv) {
             }
         }
 
-        if (sockets.last_error() != SOCKETS::ERR_NONE) {
+        if (sockets.last_error() != SOCKETS::NO_ERROR) {
             printf(
                 "Error serving the sockets (%s).\n",
-                sockets.get_code(sockets.last_error())
+                sockets.to_string(sockets.last_error())
             );
         }
 
@@ -90,7 +90,7 @@ static void handle(SOCKETS &sockets) {
         size_t sid = alert.session;
 
         switch (alert.event) {
-            case SOCKETS::EV_CONNECTION: {
+            case SOCKETS::CONNECTION: {
                 printf(
                     "New connection from %s:%s (session %lu).\n",
                     sockets.get_host(sid), sockets.get_port(sid), sid
@@ -103,7 +103,7 @@ static void handle(SOCKETS &sockets) {
 
                 continue;
             }
-            case SOCKETS::EV_DISCONNECTION: {
+            case SOCKETS::DISCONNECTION: {
                 printf(
                     "Disconnected %s:%s (session %lu).\n",
                     sockets.get_host(sid), sockets.get_port(sid), sid
@@ -111,7 +111,7 @@ static void handle(SOCKETS &sockets) {
 
                 continue;
             }
-            case SOCKETS::EV_INCOMING: {
+            case SOCKETS::INCOMING: {
                 buffer.resize(
                     std::max(buffer.capacity(), sockets.incoming(sid))
                 );

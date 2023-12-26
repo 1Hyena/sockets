@@ -21,7 +21,7 @@ int main(int argc, char **argv) {
     }
 
     sockets.set_logger(
-        [](const char *txt) noexcept {
+        [](SOCKETS::SESSION, const char *txt) noexcept {
             printf("Sockets: %s\n", txt);
         }
     );
@@ -30,8 +30,8 @@ int main(int argc, char **argv) {
 
     SOCKETS::ERROR error;
 
-    if ((error = sockets.next_error()) != SOCKETS::ERR_NONE) {
-        printf("Error serving the sockets (%s).\n", sockets.get_code(error));
+    if ((error = sockets.next_error()) != SOCKETS::NO_ERROR) {
+        printf("Error serving the sockets (%s).\n", sockets.to_string(error));
     }
 
     printf("%s\n", "Deinitializing networking.");

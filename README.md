@@ -13,17 +13,18 @@ notification mechanism.
 
 * **Non-Throwing** —
   The SOCKETS class has all of its methods specified as *noexcept*, giving it a
-  no-throw exception guarantee. Also, it does not call any potentially throwing
+  no-throw exception guarantee. It does not call any potentially throwing
   functions internally either. Thus, it is perfectly fine to use this library in
   a program that is compiled with the `-fno-exceptions` flag.
 
 * **Signal-Compatible** —
-  This library can safely be used by a program that uses signals. It makes the
-  necessary calls to _sigprocmask_ to block all signals before executing tasks
-  that must not be interrupted by signals.
+  This library can safely be used by a program that handles signals even if the
+  program is multithreaded. It makes the necessary calls to `pthread_sigmask`
+  to block all signals before executing tasks that must not be interrupted by
+  signals.
 
 * **Header-Only** —
-  Everything in this library is provided in a single self-contained header file
+  Everything in this library is provided as a single self-contained header file
   named [sockets.h](sockets.h).
 
 * **Scalable** —
