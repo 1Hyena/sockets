@@ -46,19 +46,21 @@ The following piece of code is the most minimalistic example of a TCP server
 using the SOCKETS library.
 
 ```C++
+SOCKETS sockets;
+sockets.init();
 sockets.listen("4000");
 
 while (!sockets.next_error()) {
     SOCKETS::ALERT alert{ sockets.next_alert() };
 
-    if (alert.event == SOCKETS::EV_CONNECTION) {
+    if (alert.event == SOCKETS::CONNECTION) {
         sockets.writef(
-            alert.descriptor, "Hello, %s:%s!\n",
-            sockets.get_host(alert.descriptor),
-            sockets.get_port(alert.descriptor)
+            alert.session, "Hello, %s:%s!\n",
+            sockets.get_host(alert.session),
+            sockets.get_port(alert.session)
         );
 
-        sockets.disconnect(alert.descriptor);
+        sockets.disconnect(alert.session);
     }
 }
 ```
@@ -67,16 +69,18 @@ A really simple TCP client that does not do any error checking is exemplified by
 the following code snippet.
 
 ```C++
+SOCKETS sockets;
+sockets.init();
 sockets.connect("localhost", "4000");
 
 while (!sockets.next_error()) {
     SOCKETS::ALERT alert{ sockets.next_alert() };
 
-    if (alert.event == SOCKETS::EV_CONNECTION) {
+    if (alert.event == SOCKETS::CONNECTION) {
         printf(
             "Connected to %s:%s.\n",
-            sockets.get_host(alert.descriptor),
-            sockets.get_port(alert.descriptor)
+            sockets.get_host(alert.session),
+            sockets.get_port(alert.session)
         );
     }
 }
