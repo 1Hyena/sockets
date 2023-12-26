@@ -2,7 +2,7 @@
 
 SOCKETS is a single-threaded, non-throwing and signal-compatible header-only C++
 library for the creation and acceptance of TCP connections. The library makes
-use of the *epoll* Linux kernel system call to achieve a scalable I/O event
+use of the *epoll* Linux kernel system call to implement a scalable I/O event
 notification mechanism.
 
 * **Single-Threaded** —
