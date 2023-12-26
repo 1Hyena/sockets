@@ -7,7 +7,7 @@ notification mechanism.
 
 * **Single-Threaded** —
   Unlike many networking libraries, this one does not maintain a pool of threads
-  in order to concurrently manage multiple connections. The caller may use this
+  to concurrently manage multiple connections. However, the caller may use this
   library in a multithreaded context but is then fully responsible for avoiding
   race conditions.
 
@@ -22,6 +22,13 @@ notification mechanism.
   program is multithreaded. It makes the necessary calls to `pthread_sigmask`
   to block all signals before executing tasks that must not be interrupted by
   signals.
+
+* **Memory-Respecting** —
+  The calling application may set a soft limit to the amount of memory the
+  SOCKETS class can allocate. Such a limit can even be imposed on each session
+  individually. If the specified limit is met or if the system runs out of
+  physical memory, the library will pause and return an _OUT_OF_MEMORY_ error.
+  If more memory becomes available, it is able to continue where it left off.
 
 * **Header-Only** —
   Everything in this library is provided as a single self-contained header file
@@ -116,6 +123,16 @@ examples.
   combination with custom signal handlers. For example, one might want to
   implement the main loop of their application with the help of _SIGALRM_ to
   make sure that each cycle starts after a fixed time interval.
+
+* [ex_chat](examples/src/ex_chat.cpp) —
+  The purpose of this example is to show how an actually useful application may
+  benefit from the SOCKETS library. For that, a text-based chat server has been
+  implemented. It allows specifying the port number where to accept incoming TCP
+  connections and upon a successful start it broadcasts all received messages to
+  everyone connected to the chat. As a bonus, this example shows how one could
+  implement a main loop which only updates the high level program logic in fixed
+  time intervals. Also, it shows one way how to deal with the _Out Of Memory_
+  errors.
 
 In the following subsections the regular build instructions and target platform
 system requirements are given.
