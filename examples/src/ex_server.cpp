@@ -113,7 +113,7 @@ static void handle(SOCKETS &sockets) {
             }
             case SOCKETS::INCOMING: {
                 buffer.resize(
-                    std::max(buffer.capacity(), sockets.incoming(sid))
+                    std::max(buffer.capacity(), sockets.get_incoming_size(sid))
                 );
 
                 size_t count = sockets.read(sid, buffer.data(), buffer.size());

@@ -41,7 +41,7 @@
 
 class SOCKETS final {
     public:
-    static constexpr const char *const VERSION = "1.0";
+    static constexpr const char *const VERSION = "1.01";
 
     enum class ERROR : uint8_t {
         NONE = 0,
@@ -139,8 +139,8 @@ class SOCKETS final {
     ERROR last_error() noexcept;
     ALERT next_alert() noexcept;
 
-    [[nodiscard]] size_t incoming(size_t session_id) const noexcept;
-    [[nodiscard]] size_t outgoing(size_t session_id) const noexcept;
+    [[nodiscard]] size_t get_incoming_size(size_t session_id) const noexcept;
+    [[nodiscard]] size_t get_outgoing_size(size_t session_id) const noexcept;
     size_t read(size_t session_id, void *buf, size_t count) noexcept;
     const char *read(size_t session_id) noexcept;
     const char *peek(size_t session_id) noexcept;
@@ -585,7 +585,7 @@ class SOCKETS final {
     RESULT call_pthread_sigmask(
         int how, const sigset_t *set, sigset_t *oldset,
         const char *file =LEAF(__builtin_FILE()), int line =__builtin_LINE()
-    ) noexcept;
+    ) const noexcept;
     RESULT call_getaddrinfo(
         const char *node, const char *service, const struct addrinfo *hints,
         struct addrinfo **res,
@@ -1239,7 +1239,7 @@ SOCKETS::ERROR SOCKETS::next_error(int timeout) noexcept {
     return err(ERROR::NONE);
 }
 
-size_t SOCKETS::incoming(size_t sid) const noexcept {
+size_t SOCKETS::get_incoming_size(size_t sid) const noexcept {
     const JACK *const jack = find_jack(make_session_query(sid));
 
     if (jack) {
@@ -1251,7 +1251,7 @@ size_t SOCKETS::incoming(size_t sid) const noexcept {
     return 0;
 }
 
-size_t SOCKETS::outgoing(size_t sid) const noexcept {
+size_t SOCKETS::get_outgoing_size(size_t sid) const noexcept {
     const JACK *const jack = find_jack(make_session_query(sid));
 
     if (jack) {
@@ -1497,6 +1497,10 @@ SOCKETS::ERROR SOCKETS::report(
     char *bufptr = stackbuf;
     size_t bufsz = sizeof(stackbuf);
 
+    sigset_t sigset_orig;
+
+    call_pthread_sigmask(SIG_SETMASK, &sigset_all, &sigset_orig);
+
     for (size_t i=0; i<2 && bufptr; ++i) {
         std::va_list args;
         va_start(args, fmt);
@@ -1546,6 +1550,8 @@ SOCKETS::ERROR SOCKETS::report(
             break;
         }
     }
+
+    call_pthread_sigmask(SIG_SETMASK, &sigset_orig, nullptr);
 
     if (bufptr && bufptr != stackbuf) delete [] bufptr;
 
@@ -4651,7 +4657,7 @@ SOCKETS::RESULT SOCKETS::call_epoll_ctl(
 
 SOCKETS::RESULT SOCKETS::call_pthread_sigmask(
     int how, const sigset_t *set, sigset_t *oldset, const char *file, int line
-) noexcept {
+) const noexcept {
     int errno_orig = errno;
     errno = 0;
 

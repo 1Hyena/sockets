@@ -359,7 +359,9 @@ static void handle_sockets(CHAT &chat) {
             }
             case SOCKETS::INCOMING: {
                 buffer.resize(
-                    std::max(buffer.capacity(), chat.sockets->incoming(sid))
+                    std::max(
+                        buffer.capacity(), chat.sockets->get_incoming_size(sid)
+                    )
                 );
 
                 size_t count = chat.sockets->read(
