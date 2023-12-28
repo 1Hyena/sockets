@@ -902,7 +902,7 @@ SOCKETS::ERROR SOCKETS::set_intake(
 
     return fuse() ? report(
         make_session(sid, ERROR::BAD_REQUEST),
-        "session %lu not found (%s:%d)", sid, file, line
+        "session not found (%s:%d)", file, line
     ) : ERROR::BAD_REQUEST;
 }
 
