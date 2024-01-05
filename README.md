@@ -158,7 +158,7 @@ Some of the projects that have put SOCKETS into good use are listed below.
 * [TCP Nipple](https://github.com/1Hyena/tcpnipple) —
   a proxy client that joins together pairs of outgoing TCP connections
 
-* [TCP Herald](https://github.com/1Hyena/tcpherald) —
+* [TCP Coupler](https://github.com/1Hyena/tcpcoupler) —
   a proxy server that joins together pairs of incoming TCP connections
 
 
