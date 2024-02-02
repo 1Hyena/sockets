@@ -1,7 +1,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 // MIT License                                                                //
 //                                                                            //
-// Copyright (c) 2023 Erich Erstu                                             //
+// Copyright (c) 2024 Erich Erstu                                             //
 //                                                                            //
 // Permission is hereby granted, free of charge, to any person obtaining a    //
 // copy of this software and associated documentation files (the "Software"), //
@@ -66,7 +66,7 @@ class SOCKETS final {
         SYSTEM_ERROR   = ERROR::SYSTEM,
         UNKNOWN_ERROR  = ERROR::UNKNOWN;
 
-    inline static const char *to_string(ERROR) noexcept;
+    static const char *to_string(ERROR) noexcept;
 
     struct SESSION {
         size_t id;
@@ -290,73 +290,73 @@ class SOCKETS final {
         TYPE type;
     };
 
-    inline static constexpr KEY make_key(uintptr_t) noexcept;
-    inline static constexpr KEY make_key(EVENT) noexcept;
+    static constexpr KEY make_key(uintptr_t) noexcept;
+    static constexpr KEY make_key(EVENT) noexcept;
 
-    inline static constexpr struct JACK make_jack(
+    static constexpr struct JACK make_jack(
         int descriptor, int parent =-1
     ) noexcept;
 
-    inline static constexpr struct ALERT make_alert(
+    static constexpr struct ALERT make_alert(
         size_t session, EVENT type, bool valid =true
     ) noexcept;
 
-    inline static constexpr struct SESSION make_session(ERROR) noexcept;
-    inline static constexpr struct SESSION make_session(
+    static constexpr struct SESSION make_session(ERROR) noexcept;
+    static constexpr struct SESSION make_session(
         size_t id, ERROR error =ERROR::NONE, bool valid =true
     ) noexcept;
 
-    inline static constexpr struct INDEX::ENTRY make_index_entry(
+    static constexpr struct INDEX::ENTRY make_index_entry(
         PIPE &keys, PIPE &values, size_t index, ERROR, bool valid
     ) noexcept;
 
-    inline static constexpr struct INDEX::ENTRY make_index_entry(
+    static constexpr struct INDEX::ENTRY make_index_entry(
         PIPE &keys, PIPE &values, size_t index, ERROR
     ) noexcept;
 
-    inline static constexpr PIPE make_pipe(
+    static constexpr PIPE make_pipe(
         const uint8_t *data, size_t size
     ) noexcept;
 
-    inline static constexpr PIPE make_pipe(PIPE::TYPE) noexcept;
+    static constexpr PIPE make_pipe(PIPE::TYPE) noexcept;
 
-    inline static constexpr PIPE::ENTRY make_pipe_entry(PIPE::TYPE) noexcept;
-    inline static constexpr PIPE::ENTRY make_pipe_entry(uint64_t  ) noexcept;
-    inline static constexpr PIPE::ENTRY make_pipe_entry(int       ) noexcept;
-    inline static constexpr PIPE::ENTRY make_pipe_entry(KEY       ) noexcept;
-    inline static constexpr PIPE::ENTRY make_pipe_entry(JACK *    ) noexcept;
-    inline static constexpr PIPE::ENTRY make_pipe_entry(MEMORY *  ) noexcept;
+    static constexpr PIPE::ENTRY make_pipe_entry(PIPE::TYPE) noexcept;
+    static constexpr PIPE::ENTRY make_pipe_entry(uint64_t  ) noexcept;
+    static constexpr PIPE::ENTRY make_pipe_entry(int       ) noexcept;
+    static constexpr PIPE::ENTRY make_pipe_entry(KEY       ) noexcept;
+    static constexpr PIPE::ENTRY make_pipe_entry(JACK *    ) noexcept;
+    static constexpr PIPE::ENTRY make_pipe_entry(MEMORY *  ) noexcept;
 
-    inline static constexpr epoll_data_t make_epoll_data(int fd) noexcept;
-    inline static constexpr epoll_event make_epoll_event(
+    static constexpr epoll_data_t make_epoll_data(int fd) noexcept;
+    static constexpr epoll_event make_epoll_event(
         int descriptor, uint32_t events
     ) noexcept;
-    inline static constexpr struct addrinfo make_addrinfo(
+    static constexpr struct addrinfo make_addrinfo(
         int ai_family, int ai_flags
     ) noexcept;
 
-    inline static constexpr QUERY make_descriptor_query(int) noexcept;
-    inline static constexpr QUERY make_session_query(size_t) noexcept;
-    inline static constexpr QUERY make_session_query(SESSION) noexcept;
-    inline static constexpr QUERY make_event_query(EVENT) noexcept;
+    static constexpr QUERY make_descriptor_query(int) noexcept;
+    static constexpr QUERY make_session_query(size_t) noexcept;
+    static constexpr QUERY make_session_query(SESSION) noexcept;
+    static constexpr QUERY make_event_query(EVENT) noexcept;
 
-    inline static bool is_listed(
+    static bool is_listed(
         const addrinfo &info, const addrinfo *list
     ) noexcept;
 
-    inline static constexpr bool is_descriptor(int) noexcept;
-    inline static constexpr EVENT next(EVENT) noexcept;
-    inline static constexpr size_t size(PIPE::TYPE) noexcept;
-    inline static constexpr size_t align(PIPE::TYPE) noexcept;
-    inline static constexpr auto fmt_bytes(size_t) noexcept;
-    inline static constexpr const char *LEAF(const char *path) noexcept;
-    inline static constexpr const char *TAIL(const char *, char neck) noexcept;
-    inline static int clz(unsigned int) noexcept;
-    inline static int clz(unsigned long) noexcept;
-    inline static int clz(unsigned long long) noexcept;
-    inline static unsigned int       next_pow2(unsigned int) noexcept;
-    inline static unsigned long      next_pow2(unsigned long) noexcept;
-    inline static unsigned long long next_pow2(unsigned long long) noexcept;
+    static constexpr bool is_descriptor(int) noexcept;
+    static constexpr EVENT next(EVENT) noexcept;
+    static constexpr size_t size(PIPE::TYPE) noexcept;
+    static constexpr size_t align(PIPE::TYPE) noexcept;
+    static constexpr auto fmt_bytes(size_t) noexcept;
+    static constexpr const char *LEAF(const char *path) noexcept;
+    static constexpr const char *TAIL(const char *, char neck) noexcept;
+    static int clz(unsigned int) noexcept;
+    static int clz(unsigned long) noexcept;
+    static int clz(unsigned long long) noexcept;
+    static unsigned int       next_pow2(unsigned int) noexcept;
+    static unsigned long      next_pow2(unsigned long) noexcept;
+    static unsigned long long next_pow2(unsigned long long) noexcept;
 
     ERROR handle_close (JACK &) noexcept;
     ERROR handle_epoll (JACK &, int timeout) noexcept;
@@ -497,7 +497,7 @@ class SOCKETS final {
         SESSION, const char *fmt, ...
     ) const noexcept __attribute__((format(printf, 3, 4)));
     template<class... Args>
-    inline void log(const char *fmt, Args&&... args) const noexcept {
+    void log(const char *fmt, Args&&... args) const noexcept {
         report(make_session(ERROR::NONE), fmt, std::forward<Args>(args)...);
     }
     ERROR report(
@@ -531,7 +531,7 @@ class SOCKETS final {
         const char *file =LEAF(__builtin_FILE()), int line =__builtin_LINE()
     ) const noexcept;
 
-    inline static constexpr RESULT make_result(
+    static constexpr RESULT make_result(
         int value, int, ERROR,
         const char *comment, const char *function, const char *file, int line
     ) noexcept;
@@ -629,7 +629,7 @@ class SOCKETS final {
         bool   oom:1;
     } mempool;
 
-    inline static constexpr struct MEMPOOL make_mempool() noexcept;
+    static constexpr struct MEMPOOL make_mempool() noexcept;
 
     EVENT handled;
     ERROR errored;
@@ -650,25 +650,25 @@ class SOCKETS final {
     mutable uint8_t fuses[768];
 };
 
-bool operator!(SOCKETS::ERROR error) noexcept {
+inline bool operator!(SOCKETS::ERROR error) noexcept {
     return error == static_cast<SOCKETS::ERROR>(0);
 }
 
-bool operator!(SOCKETS::RESULT result) noexcept {
+inline bool operator!(SOCKETS::RESULT result) noexcept {
     return result.error != SOCKETS::ERROR::NONE || result.code != 0;
 }
 
-bool operator!(SOCKETS::SESSION session) noexcept {
+inline bool operator!(SOCKETS::SESSION session) noexcept {
     return session.valid == false;
 }
 
-SOCKETS::SOCKETS() noexcept :
+inline SOCKETS::SOCKETS() noexcept :
     log_callback(nullptr), indices{}, buffers{}, mempool{make_mempool()},
     handled{}, errored{}, last_jack_id{}, jack_count{}, bitset{}, sigset_all{},
     sigset_none{}, fuses{} {
 }
 
-SOCKETS::~SOCKETS() {
+inline SOCKETS::~SOCKETS() {
     if (mempool.usage > sizeof(SOCKETS)) {
         log(
             "memory usage remains at %lu byte%s (leak?)",
@@ -689,7 +689,7 @@ SOCKETS::~SOCKETS() {
     }
 }
 
-void SOCKETS::clear() noexcept {
+inline void SOCKETS::clear() noexcept {
     errored = ERROR::NONE;
     handled = EVENT::NONE;
 
@@ -734,7 +734,7 @@ void SOCKETS::clear() noexcept {
     std::fill(fuses, fuses+sizeof(fuses), 0);
 }
 
-bool SOCKETS::init() noexcept {
+inline bool SOCKETS::init() noexcept {
     for (INDEX &index : indices) {
         if (index.type != INDEX::TYPE::NONE) {
             log("%s: already initialized", __FUNCTION__);
@@ -843,7 +843,7 @@ bool SOCKETS::init() noexcept {
     return true;
 }
 
-bool SOCKETS::deinit() noexcept {
+inline bool SOCKETS::deinit() noexcept {
     if (!find_epoll_jack()) {
         log("%s: already deinitialized", __FUNCTION__);
 
@@ -871,25 +871,25 @@ bool SOCKETS::deinit() noexcept {
     return success;
 }
 
-void SOCKETS::set_logger(
+inline void SOCKETS::set_logger(
     void (*callback)(SOCKETS::SESSION, const char *) noexcept
 ) noexcept {
     log_callback = callback;
 }
 
-void SOCKETS::set_memcap(size_t bytes) noexcept {
+inline void SOCKETS::set_memcap(size_t bytes) noexcept {
     mempool.cap = bytes;
 }
 
-size_t SOCKETS::get_memcap() const noexcept {
+inline size_t SOCKETS::get_memcap() const noexcept {
     return mempool.cap;
 }
 
-size_t SOCKETS::get_memtop() const noexcept {
+inline size_t SOCKETS::get_memtop() const noexcept {
     return mempool.top;
 }
 
-SOCKETS::ERROR SOCKETS::set_intake(
+inline SOCKETS::ERROR SOCKETS::set_intake(
     size_t sid, size_t bytes, const char *file, int line
 ) noexcept {
     JACK *jack = find_jack(make_session_query(sid));
@@ -906,14 +906,14 @@ SOCKETS::ERROR SOCKETS::set_intake(
     ) : ERROR::BAD_REQUEST;
 }
 
-SOCKETS::SESSION SOCKETS::listen(
+inline SOCKETS::SESSION SOCKETS::listen(
     const char *port, int family, const std::initializer_list<int> options,
     int flags
 ) noexcept {
     return listen(nullptr, port, family, AI_PASSIVE|flags, options);
 }
 
-struct SOCKETS::ALERT SOCKETS::next_alert() noexcept {
+inline struct SOCKETS::ALERT SOCKETS::next_alert() noexcept {
     size_t session;
 
     bitset.alerted = false;
@@ -933,7 +933,7 @@ struct SOCKETS::ALERT SOCKETS::next_alert() noexcept {
     return make_alert(0, EVENT::NONE, false);
 }
 
-size_t SOCKETS::next_connection() noexcept {
+inline size_t SOCKETS::next_connection() noexcept {
     JACK *const jack = find_jack(make_event_query(EVENT::CONNECTION));
 
     if (jack) {
@@ -945,7 +945,7 @@ size_t SOCKETS::next_connection() noexcept {
     return 0;
 }
 
-size_t SOCKETS::next_disconnection() noexcept {
+inline size_t SOCKETS::next_disconnection() noexcept {
     if (find_jack(make_event_query(EVENT::CONNECTION))) {
         // We postpone reporting any disconnections until the application
         // has acknowledged all the new incoming connections. This prevents
@@ -967,7 +967,7 @@ size_t SOCKETS::next_disconnection() noexcept {
     return 0;
 }
 
-size_t SOCKETS::next_incoming() noexcept {
+inline size_t SOCKETS::next_incoming() noexcept {
     JACK *const jack = find_jack(make_event_query(EVENT::INCOMING));
 
     if (jack) {
@@ -979,16 +979,16 @@ size_t SOCKETS::next_incoming() noexcept {
     return 0;
 }
 
-bool SOCKETS::is_listener(const JACK &jack) const noexcept {
+inline bool SOCKETS::is_listener(const JACK &jack) const noexcept {
     return jack.bitset.listener;
 }
 
-bool SOCKETS::is_listener(size_t sid) const noexcept {
+inline bool SOCKETS::is_listener(size_t sid) const noexcept {
     const JACK *const jack = find_jack(make_session_query(sid));
     return jack ? is_listener(*jack) : false;
 }
 
-SOCKETS::SESSION SOCKETS::get_listener(size_t sid) const noexcept {
+inline SOCKETS::SESSION SOCKETS::get_listener(size_t sid) const noexcept {
     const JACK *const jack = find_jack(make_session_query(sid));
 
     if (!jack) {
@@ -1002,22 +1002,22 @@ SOCKETS::SESSION SOCKETS::get_listener(size_t sid) const noexcept {
     return parent ? make_session(parent->id) : make_session(ERROR::NONE);
 }
 
-const char *SOCKETS::get_host(size_t session_id) const noexcept {
+inline const char *SOCKETS::get_host(size_t session_id) const noexcept {
     const JACK *const jack = find_jack(make_session_query(session_id));
     return jack && jack->host.size ? to_char(jack->host) : "";
 }
 
-const char *SOCKETS::get_port(size_t session_id) const noexcept {
+inline const char *SOCKETS::get_port(size_t session_id) const noexcept {
     const JACK *const jack = find_jack(make_session_query(session_id));
     return jack && jack->port.size ? to_char(jack->port) : "";
 }
 
-SOCKETS::SESSION SOCKETS::get_session(int descriptor) const noexcept {
+inline SOCKETS::SESSION SOCKETS::get_session(int descriptor) const noexcept {
     const JACK *const jack = find_jack(make_descriptor_query(descriptor));
     return jack ? make_session(jack->id) : make_session(0, ERROR::NONE, false);
 }
 
-void SOCKETS::freeze(size_t sid) noexcept {
+inline void SOCKETS::freeze(size_t sid) noexcept {
     JACK *const jack = find_jack(make_session_query(sid));
 
     if (jack) {
@@ -1025,7 +1025,7 @@ void SOCKETS::freeze(size_t sid) noexcept {
     }
 }
 
-void SOCKETS::unfreeze(size_t sid) noexcept {
+inline void SOCKETS::unfreeze(size_t sid) noexcept {
     JACK *const jack = find_jack(make_session_query(sid));
 
     if (jack) {
@@ -1036,23 +1036,23 @@ void SOCKETS::unfreeze(size_t sid) noexcept {
     }
 }
 
-bool SOCKETS::is_frozen(size_t sid) const noexcept {
+inline bool SOCKETS::is_frozen(size_t sid) const noexcept {
     const JACK *const jack = find_jack(make_session_query(sid));
 
     return jack ? jack->bitset.frozen : false;
 }
 
-bool SOCKETS::idle() const noexcept {
+inline bool SOCKETS::idle() const noexcept {
     return bitset.timeout;
 }
 
-SOCKETS::SESSION SOCKETS::connect(
+inline SOCKETS::SESSION SOCKETS::connect(
     const char *host, const char *port, int family
 ) noexcept {
     return connect(host, port, family, 0);
 }
 
-void SOCKETS::disconnect(size_t session_id) noexcept {
+inline void SOCKETS::disconnect(size_t session_id) noexcept {
     JACK *jack = find_jack(make_session_query(session_id));
 
     if (jack) {
@@ -1060,11 +1060,11 @@ void SOCKETS::disconnect(size_t session_id) noexcept {
     }
 }
 
-SOCKETS::ERROR SOCKETS::err(ERROR e) noexcept {
+inline SOCKETS::ERROR SOCKETS::err(ERROR e) noexcept {
     return (errored = e);
 }
 
-SOCKETS::ERROR SOCKETS::last_error() noexcept {
+inline SOCKETS::ERROR SOCKETS::last_error() noexcept {
     return errored;
 }
 
@@ -1092,7 +1092,7 @@ constexpr auto SOCKETS::fmt_bytes(size_t b) noexcept {
     );
 }
 
-SOCKETS::ERROR SOCKETS::next_error(int timeout) noexcept {
+inline SOCKETS::ERROR SOCKETS::next_error(int timeout) noexcept {
     if (mempool.usage > mempool.top) {
         mempool.top = mempool.usage;
 
@@ -1239,7 +1239,7 @@ SOCKETS::ERROR SOCKETS::next_error(int timeout) noexcept {
     return err(ERROR::NONE);
 }
 
-size_t SOCKETS::get_incoming_size(size_t sid) const noexcept {
+inline size_t SOCKETS::get_incoming_size(size_t sid) const noexcept {
     const JACK *const jack = find_jack(make_session_query(sid));
 
     if (jack) {
@@ -1251,7 +1251,7 @@ size_t SOCKETS::get_incoming_size(size_t sid) const noexcept {
     return 0;
 }
 
-size_t SOCKETS::get_outgoing_size(size_t sid) const noexcept {
+inline size_t SOCKETS::get_outgoing_size(size_t sid) const noexcept {
     const JACK *const jack = find_jack(make_session_query(sid));
 
     if (jack) {
@@ -1263,7 +1263,7 @@ size_t SOCKETS::get_outgoing_size(size_t sid) const noexcept {
     return 0;
 }
 
-size_t SOCKETS::read(size_t sid, void *buf, size_t count) noexcept {
+inline size_t SOCKETS::read(size_t sid, void *buf, size_t count) noexcept {
     if (!count) return 0;
 
     JACK *const jack = find_jack(make_session_query(sid));
@@ -1297,7 +1297,7 @@ size_t SOCKETS::read(size_t sid, void *buf, size_t count) noexcept {
     return count;
 }
 
-const char *SOCKETS::read(size_t sid) noexcept {
+inline const char *SOCKETS::read(size_t sid) noexcept {
     JACK *const jack = find_jack(make_session_query(sid));
 
     if (!jack || jack->incoming.size == 0) {
@@ -1310,7 +1310,7 @@ const char *SOCKETS::read(size_t sid) noexcept {
     return c_str;
 }
 
-const char *SOCKETS::peek(size_t sid) noexcept {
+inline const char *SOCKETS::peek(size_t sid) noexcept {
     JACK *const jack = find_jack(make_session_query(sid));
 
     if (!jack || jack->incoming.size == 0) {
@@ -1320,7 +1320,7 @@ const char *SOCKETS::peek(size_t sid) noexcept {
     return to_char(jack->incoming);
 }
 
-SOCKETS::ERROR SOCKETS::write(
+inline SOCKETS::ERROR SOCKETS::write(
     size_t sid, const void *buf, size_t count
 ) noexcept {
     if (!buf) {
@@ -1357,11 +1357,13 @@ SOCKETS::ERROR SOCKETS::write(
     return ERROR::NONE;
 }
 
-SOCKETS::ERROR SOCKETS::write(size_t sid, const char *text) noexcept {
+inline SOCKETS::ERROR SOCKETS::write(size_t sid, const char *text) noexcept {
     return write(sid, text, std::strlen(text));
 }
 
-SOCKETS::ERROR SOCKETS::writef(size_t sid, const char *fmt, ...) noexcept {
+inline SOCKETS::ERROR SOCKETS::writef(
+    size_t sid, const char *fmt, ...
+) noexcept {
     char stackbuf[1024];
 
     std::va_list args;
@@ -1445,7 +1447,7 @@ SOCKETS::ERROR SOCKETS::writef(size_t sid, const char *fmt, ...) noexcept {
     return report_bug();
 }
 
-const SOCKETS::RESULT &SOCKETS::report(const RESULT &result) noexcept {
+inline const SOCKETS::RESULT &SOCKETS::report(const RESULT &result) noexcept {
     if (result.error != ERROR::NONE) {
         report(
             result.error, result.code, result.call, result.text, result.file,
@@ -1456,7 +1458,7 @@ const SOCKETS::RESULT &SOCKETS::report(const RESULT &result) noexcept {
     return result;
 }
 
-const SOCKETS::RESULT &SOCKETS::report(
+inline const SOCKETS::RESULT &SOCKETS::report(
     size_t session_id, const RESULT &result
 ) noexcept {
     if (!result.error) {
@@ -1484,13 +1486,13 @@ const SOCKETS::RESULT &SOCKETS::report(
     return result;
 }
 
-const SOCKETS::RESULT &SOCKETS::report(
+inline const SOCKETS::RESULT &SOCKETS::report(
     const JACK *jack, const RESULT &result
 ) noexcept {
     return report(jack ? jack->id : 0, result);
 }
 
-SOCKETS::ERROR SOCKETS::report(
+inline SOCKETS::ERROR SOCKETS::report(
     SOCKETS::SESSION session, const char *fmt, ...
 ) const noexcept {
     char stackbuf[256];
@@ -1558,7 +1560,7 @@ SOCKETS::ERROR SOCKETS::report(
     return session.error;
 }
 
-SOCKETS::ERROR SOCKETS::report(
+inline SOCKETS::ERROR SOCKETS::report(
     ERROR error, int line, const char *file, char const *function
 ) const noexcept {
     return report(
@@ -1567,7 +1569,7 @@ SOCKETS::ERROR SOCKETS::report(
     );
 }
 
-SOCKETS::ERROR SOCKETS::report(
+inline SOCKETS::ERROR SOCKETS::report(
     ERROR error, int code, char const *function, const char *message,
     const char *file, int line
 ) const noexcept {
@@ -1577,7 +1579,7 @@ SOCKETS::ERROR SOCKETS::report(
     );
 }
 
-SOCKETS::ERROR SOCKETS::report_bug(
+inline SOCKETS::ERROR SOCKETS::report_bug(
     const char *comment, const char *file, int line
 ) const noexcept {
     if (!comment) {
@@ -1589,7 +1591,7 @@ SOCKETS::ERROR SOCKETS::report_bug(
     );
 }
 
-SOCKETS::ERROR SOCKETS::report_bad_request(
+inline SOCKETS::ERROR SOCKETS::report_bad_request(
     const char *comment, const char *file, int line
 ) const noexcept {
     if (!comment) {
@@ -1601,7 +1603,7 @@ SOCKETS::ERROR SOCKETS::report_bad_request(
     );
 }
 
-SOCKETS::ERROR SOCKETS::report_memory_exhaustion(
+inline SOCKETS::ERROR SOCKETS::report_memory_exhaustion(
     const char *comment, const char *file, int line
 ) const noexcept {
     if (!comment) {
@@ -1613,7 +1615,7 @@ SOCKETS::ERROR SOCKETS::report_memory_exhaustion(
     );
 }
 
-bool SOCKETS::fuse(const char *file, int line) const noexcept {
+inline bool SOCKETS::fuse(const char *file, int line) const noexcept {
     size_t i = (static_cast<size_t>(line) / BITS_PER_BYTE) % sizeof(fuses);
 
     switch (line % BITS_PER_BYTE) {
@@ -1632,13 +1634,13 @@ bool SOCKETS::fuse(const char *file, int line) const noexcept {
     return true;
 }
 
-void SOCKETS::die(const char *file, int line) const noexcept {
+inline void SOCKETS::die(const char *file, int line) const noexcept {
     report_bug("fatal error", file, line);
     fflush(nullptr);
     std::abort();
 }
 
-SOCKETS::ERROR SOCKETS::handle_close(JACK &jack) noexcept {
+inline SOCKETS::ERROR SOCKETS::handle_close(JACK &jack) noexcept {
     if (jack.bitset.reconnect) {
         SESSION new_session{
             connect(
@@ -1690,7 +1692,7 @@ SOCKETS::ERROR SOCKETS::handle_close(JACK &jack) noexcept {
     return ERROR::NONE;
 }
 
-SOCKETS::ERROR SOCKETS::handle_epoll(
+inline SOCKETS::ERROR SOCKETS::handle_epoll(
     JACK &epoll_jack, int timeout
 ) noexcept {
     static constexpr const EVENT blockers[]{
@@ -1867,7 +1869,7 @@ SOCKETS::ERROR SOCKETS::handle_epoll(
     return ERROR::NONE;
 }
 
-SOCKETS::ERROR SOCKETS::handle_read(JACK &jack) noexcept {
+inline SOCKETS::ERROR SOCKETS::handle_read(JACK &jack) noexcept {
     static constexpr const size_t padding = 1;
     PIPE &buffer = jack.incoming;
 
@@ -1970,7 +1972,7 @@ SOCKETS::ERROR SOCKETS::handle_read(JACK &jack) noexcept {
     return ERROR::NONE;
 }
 
-SOCKETS::ERROR SOCKETS::handle_write(JACK &jack) noexcept {
+inline SOCKETS::ERROR SOCKETS::handle_write(JACK &jack) noexcept {
     int descriptor = jack.descriptor;
     PIPE &outgoing = jack.outgoing;
 
@@ -2048,7 +2050,7 @@ SOCKETS::ERROR SOCKETS::handle_write(JACK &jack) noexcept {
     return modify_epoll(descriptor, EPOLLIN|EPOLLOUT|EPOLLET|EPOLLRDHUP);
 }
 
-SOCKETS::ERROR SOCKETS::handle_accept(JACK &jack) noexcept {
+inline SOCKETS::ERROR SOCKETS::handle_accept(JACK &jack) noexcept {
     // New incoming connection detected.
     const int descriptor = jack.descriptor;
     struct sockaddr in_addr;
@@ -2177,7 +2179,7 @@ SOCKETS::ERROR SOCKETS::handle_accept(JACK &jack) noexcept {
     return handle_accept(jack);
 }
 
-SOCKETS::SESSION SOCKETS::connect(
+inline SOCKETS::SESSION SOCKETS::connect(
     const char *host, const char *port, int ai_family, int ai_flags,
     JACK *predecessor, const char *file, int line
 ) noexcept {
@@ -2303,7 +2305,9 @@ SOCKETS::SESSION SOCKETS::connect(
     return session;
 }
 
-void SOCKETS::terminate(int descriptor, const char *file, int line) noexcept {
+inline void SOCKETS::terminate(
+    int descriptor, const char *file, int line
+) noexcept {
     JACK &jack = get_jack(make_descriptor_query(descriptor));
 
     if (has_event(jack, EVENT::CLOSE)
@@ -2337,7 +2341,7 @@ void SOCKETS::terminate(int descriptor, const char *file, int line) noexcept {
     }
 }
 
-SOCKETS::SESSION SOCKETS::listen(
+inline SOCKETS::SESSION SOCKETS::listen(
     const char *host, const char *port, int ai_family, int ai_flags,
     const std::initializer_list<int> options, JACK *predecessor,
     const char *file, int line
@@ -2438,7 +2442,7 @@ SOCKETS::SESSION SOCKETS::listen(
     return session;
 }
 
-SOCKETS::SESSION SOCKETS::create_epoll() noexcept {
+inline SOCKETS::SESSION SOCKETS::create_epoll() noexcept {
     RESULT result = report(call_epoll_create1(0));
 
     if (!result) {
@@ -2475,7 +2479,7 @@ SOCKETS::SESSION SOCKETS::create_epoll() noexcept {
     return session;
 }
 
-SOCKETS::ERROR SOCKETS::operate_epoll(
+inline SOCKETS::ERROR SOCKETS::operate_epoll(
     int operation, epoll_event event
 ) noexcept {
     JACK &epoll_jack = get_epoll_jack();
@@ -2493,7 +2497,7 @@ SOCKETS::ERROR SOCKETS::operate_epoll(
     return ERROR::NONE;
 }
 
-SOCKETS::ERROR SOCKETS::bind_to_epoll(
+inline SOCKETS::ERROR SOCKETS::bind_to_epoll(
     int descriptor, const char *file, int line
 ) noexcept {
     ERROR error{
@@ -2510,7 +2514,7 @@ SOCKETS::ERROR SOCKETS::bind_to_epoll(
     return error;
 }
 
-SOCKETS::ERROR SOCKETS::modify_epoll(
+inline SOCKETS::ERROR SOCKETS::modify_epoll(
     int descriptor, uint32_t events, const char *file, int line
 ) noexcept {
     ERROR error{
@@ -2524,19 +2528,19 @@ SOCKETS::ERROR SOCKETS::modify_epoll(
     return error;
 }
 
-SOCKETS::ERROR SOCKETS::block_signals(sigset_t &sigset_orig) noexcept {
+inline SOCKETS::ERROR SOCKETS::block_signals(sigset_t &sigset_orig) noexcept {
     return report(
         call_pthread_sigmask(SIG_SETMASK, &sigset_all, &sigset_orig)
     ).error;
 }
 
-SOCKETS::ERROR SOCKETS::unblock_signals(sigset_t &sigset_orig) noexcept {
+inline SOCKETS::ERROR SOCKETS::unblock_signals(sigset_t &sigset_orig) noexcept {
     return report(
         call_pthread_sigmask(SIG_SETMASK, &sigset_orig, nullptr)
     ).error;
 }
 
-SOCKETS::SESSION SOCKETS::open_and_capture(
+inline SOCKETS::SESSION SOCKETS::open_and_capture(
     const char *host, const char *port, int ai_family, int ai_flags,
     const std::initializer_list<int> options, JACK *predecessor,
     const char *file, int line
@@ -2686,7 +2690,7 @@ SOCKETS::SESSION SOCKETS::open_and_capture(
     return session;
 }
 
-void SOCKETS::close_descriptor(int descriptor) noexcept {
+inline void SOCKETS::close_descriptor(int descriptor) noexcept {
     // Let's block all signals before calling close because we don't
     // want it to fail due to getting interrupted by a singal.
 
@@ -2705,7 +2709,7 @@ void SOCKETS::close_descriptor(int descriptor) noexcept {
     }
 }
 
-void SOCKETS::close_and_release(
+inline void SOCKETS::close_and_release(
     JACK &jack, const char *file, int line
 ) noexcept {
     // Let's block all signals before calling close because we don't
@@ -2751,7 +2755,7 @@ void SOCKETS::close_and_release(
     }
 }
 
-SOCKETS::SESSION SOCKETS::capture(const JACK &copy) noexcept {
+inline SOCKETS::SESSION SOCKETS::capture(const JACK &copy) noexcept {
     if (last_jack_id == std::numeric_limits<decltype(last_jack_id)>::max()) {
         // It appears as if we have ran out of session IDs. In practice this
         // should never happen but if it does, we log it once. The library will
@@ -2878,7 +2882,7 @@ SOCKETS::SESSION SOCKETS::capture(const JACK &copy) noexcept {
     return make_session(error);
 }
 
-void SOCKETS::release(JACK *jack) noexcept {
+inline void SOCKETS::release(JACK *jack) noexcept {
     if (!jack) {
         report_bug();
         return;
@@ -2918,7 +2922,7 @@ void SOCKETS::release(JACK *jack) noexcept {
     recycle(get_memory(jack));
 }
 
-SOCKETS::JACK *SOCKETS::find_jack(const QUERY &query) const noexcept {
+inline SOCKETS::JACK *SOCKETS::find_jack(const QUERY &query) const noexcept {
     INDEX::ENTRY entry;
 
     switch (query.type) {
@@ -2957,11 +2961,11 @@ SOCKETS::JACK *SOCKETS::find_jack(const QUERY &query) const noexcept {
     return to_jack(get_entry(*entry.val_pipe, entry.index));
 }
 
-SOCKETS::JACK *SOCKETS::find_epoll_jack() const noexcept {
+inline SOCKETS::JACK *SOCKETS::find_epoll_jack() const noexcept {
     return find_jack(make_event_query(EVENT::EPOLL));
 }
 
-SOCKETS::JACK &SOCKETS::get_jack(const QUERY &query) const noexcept {
+inline SOCKETS::JACK &SOCKETS::get_jack(const QUERY &query) const noexcept {
     JACK *const jack = find_jack(query);
 
     if (!jack) die();
@@ -2969,7 +2973,7 @@ SOCKETS::JACK &SOCKETS::get_jack(const QUERY &query) const noexcept {
     return *jack;
 }
 
-SOCKETS::JACK &SOCKETS::get_epoll_jack() const noexcept {
+inline SOCKETS::JACK &SOCKETS::get_epoll_jack() const noexcept {
     JACK *const rec = find_epoll_jack();
 
     if (!rec) die();
@@ -2977,7 +2981,7 @@ SOCKETS::JACK &SOCKETS::get_epoll_jack() const noexcept {
     return *rec;
 }
 
-const SOCKETS::PIPE *SOCKETS::find_descriptors(EVENT ev) const noexcept {
+inline const SOCKETS::PIPE *SOCKETS::find_descriptors(EVENT ev) const noexcept {
     INDEX::ENTRY entry{find(INDEX::TYPE::EVENT_DESCRIPTOR, make_key(ev))};
 
     if (entry.valid) {
@@ -2987,7 +2991,7 @@ const SOCKETS::PIPE *SOCKETS::find_descriptors(EVENT ev) const noexcept {
     return nullptr;
 }
 
-SOCKETS::PIPE &SOCKETS::get_buffer(BUFFER buffer) noexcept {
+inline SOCKETS::PIPE &SOCKETS::get_buffer(BUFFER buffer) noexcept {
     size_t index = static_cast<size_t>(buffer);
 
     if (index >= std::extent<decltype(buffers)>::value) die();
@@ -2995,7 +2999,7 @@ SOCKETS::PIPE &SOCKETS::get_buffer(BUFFER buffer) noexcept {
     return buffers[index];
 }
 
-SOCKETS::INDEX &SOCKETS::get_index(INDEX::TYPE index_type) noexcept {
+inline SOCKETS::INDEX &SOCKETS::get_index(INDEX::TYPE index_type) noexcept {
     size_t i = static_cast<size_t>(index_type);
 
     if (i >= std::extent<decltype(indices)>::value) die();
@@ -3003,73 +3007,73 @@ SOCKETS::INDEX &SOCKETS::get_index(INDEX::TYPE index_type) noexcept {
     return indices[i];
 }
 
-SOCKETS::JACK *SOCKETS::to_jack(PIPE::ENTRY entry) const noexcept {
+inline SOCKETS::JACK *SOCKETS::to_jack(PIPE::ENTRY entry) const noexcept {
     if (entry.type != PIPE::TYPE::JACK_PTR) die();
 
     return static_cast<JACK *>(entry.as_ptr);
 }
 
-SOCKETS::MEMORY *SOCKETS::to_memory(PIPE::ENTRY entry) const noexcept {
+inline SOCKETS::MEMORY *SOCKETS::to_memory(PIPE::ENTRY entry) const noexcept {
     if (entry.type != PIPE::TYPE::MEMORY_PTR) die();
 
     return static_cast<MEMORY *>(entry.as_ptr);
 }
 
-int SOCKETS::to_int(PIPE::ENTRY entry) const noexcept {
+inline int SOCKETS::to_int(PIPE::ENTRY entry) const noexcept {
     if (entry.type != PIPE::TYPE::INT) die();
 
     return entry.as_int;
 }
 
-uint64_t SOCKETS::to_uint64(PIPE::ENTRY entry) const noexcept {
+inline uint64_t SOCKETS::to_uint64(PIPE::ENTRY entry) const noexcept {
     if (entry.type != PIPE::TYPE::UINT64) die();
 
     return entry.as_uint64;
 }
 
-SOCKETS::KEY SOCKETS::to_key(PIPE::ENTRY entry) const noexcept {
+inline SOCKETS::KEY SOCKETS::to_key(PIPE::ENTRY entry) const noexcept {
     if (entry.type != PIPE::TYPE::KEY) die();
 
     return entry.as_key;
 }
 
-int *SOCKETS::to_int(const PIPE &pipe) const noexcept {
+inline int *SOCKETS::to_int(const PIPE &pipe) const noexcept {
     if (pipe.type != PIPE::TYPE::INT) die();
 
     return static_cast<int *>(pipe.data);
 }
 
-uint8_t *SOCKETS::to_uint8(const PIPE &pipe) const noexcept {
+inline uint8_t *SOCKETS::to_uint8(const PIPE &pipe) const noexcept {
     if (pipe.type != PIPE::TYPE::UINT8) die();
 
     return static_cast<uint8_t *>(pipe.data);
 }
 
-char *SOCKETS::to_char(const PIPE &pipe) const noexcept {
+inline char *SOCKETS::to_char(const PIPE &pipe) const noexcept {
     if (pipe.type != PIPE::TYPE::UINT8) die();
 
     return static_cast<char *>(pipe.data);
 }
 
-uint64_t *SOCKETS::to_uint64(const PIPE &pipe) const noexcept {
+inline uint64_t *SOCKETS::to_uint64(const PIPE &pipe) const noexcept {
     if (pipe.type != PIPE::TYPE::UINT64) die();
 
     return static_cast<uint64_t *>(pipe.data);
 }
 
-SOCKETS::KEY *SOCKETS::to_key(const PIPE &pipe) const noexcept {
+inline SOCKETS::KEY *SOCKETS::to_key(const PIPE &pipe) const noexcept {
     if (pipe.type != PIPE::TYPE::KEY) die();
 
     return static_cast<KEY *>(pipe.data);
 }
 
-epoll_event *SOCKETS::to_epoll_event(const PIPE &pipe) const noexcept {
+inline epoll_event *SOCKETS::to_epoll_event(const PIPE &pipe) const noexcept {
     if (pipe.type != PIPE::TYPE::EPOLL_EVENT) die();
 
     return static_cast<epoll_event *>(pipe.data);
 }
 
-void **SOCKETS::to_ptr(const PIPE &pipe) const noexcept {
+inline void **SOCKETS::to_ptr(const PIPE &pipe) const noexcept {
     switch (pipe.type) {
         case PIPE::TYPE::PTR:
         case PIPE::TYPE::MEMORY_PTR:
@@ -3089,7 +3093,7 @@ void **SOCKETS::to_ptr(const PIPE &pipe) const noexcept {
     die();
 }
 
-void *SOCKETS::to_ptr(PIPE::ENTRY &entry) const noexcept {
+inline void *SOCKETS::to_ptr(PIPE::ENTRY &entry) const noexcept {
     switch (entry.type) {
         case PIPE::TYPE::PTR:
         case PIPE::TYPE::MEMORY_PTR:
@@ -3105,7 +3109,7 @@ void *SOCKETS::to_ptr(PIPE::ENTRY &entry) const noexcept {
     die();
 }
 
-void *SOCKETS::to_ptr(PIPE &pipe, size_t index) const noexcept {
+inline void *SOCKETS::to_ptr(PIPE &pipe, size_t index) const noexcept {
     switch (pipe.type) {
         case PIPE::TYPE::PTR:
         case PIPE::TYPE::MEMORY_PTR:
@@ -3121,11 +3125,13 @@ void *SOCKETS::to_ptr(PIPE &pipe, size_t index) const noexcept {
     die();
 }
 
-const void *SOCKETS::to_ptr(const PIPE &pipe, size_t index) const noexcept {
+inline const void *SOCKETS::to_ptr(
+    const PIPE &pipe, size_t index
+) const noexcept {
     return to_ptr(const_cast<PIPE&>(pipe), index);
 }
 
-void SOCKETS::set_event(JACK &jack, EVENT event, bool value) noexcept {
+inline void SOCKETS::set_event(JACK &jack, EVENT event, bool value) noexcept {
     if (value == false) {
         rem_event(jack, event);
         return;
@@ -3165,7 +3171,7 @@ void SOCKETS::set_event(JACK &jack, EVENT event, bool value) noexcept {
     die();
 }
 
-void SOCKETS::rem_event(JACK &jack, EVENT event) noexcept {
+inline void SOCKETS::rem_event(JACK &jack, EVENT event) noexcept {
     size_t index = static_cast<size_t>(event);
 
     if (index >= std::extent<decltype(jack.event_lookup)>::value) {
@@ -3202,7 +3208,7 @@ void SOCKETS::rem_event(JACK &jack, EVENT event) noexcept {
     jack.event_lookup[index] = std::numeric_limits<unsigned>::max();
 }
 
-bool SOCKETS::has_event(const JACK &jack, EVENT event) const noexcept {
+inline bool SOCKETS::has_event(const JACK &jack, EVENT event) const noexcept {
     size_t index = static_cast<size_t>(event);
 
     if (index >= std::extent<decltype(jack.event_lookup)>::value) {
@@ -3218,7 +3224,7 @@ bool SOCKETS::has_event(const JACK &jack, EVENT event) const noexcept {
     return false;
 }
 
-void SOCKETS::rem_child(JACK &jack, JACK &child) const noexcept {
+inline void SOCKETS::rem_child(JACK &jack, JACK &child) const noexcept {
     if (child.parent.child_index < 0
     || jack.descriptor != child.parent.descriptor) {
         return die();
@@ -3244,7 +3250,7 @@ void SOCKETS::rem_child(JACK &jack, JACK &child) const noexcept {
     child.parent.child_index = -1;
 }
 
-SOCKETS::INDEX::ENTRY SOCKETS::find(
+inline SOCKETS::INDEX::ENTRY SOCKETS::find(
     INDEX::TYPE index_type, KEY key, PIPE::ENTRY value,
     size_t start_i, size_t iterations
 ) const noexcept {
@@ -3297,7 +3303,7 @@ SOCKETS::INDEX::ENTRY SOCKETS::find(
     return {};
 }
 
-SOCKETS::ERROR SOCKETS::reserve(
+inline SOCKETS::ERROR SOCKETS::reserve(
     INDEX::TYPE index_type, KEY key, size_t capacity
 ) noexcept {
     ERROR error = ERROR::NONE;
@@ -3318,7 +3324,7 @@ SOCKETS::ERROR SOCKETS::reserve(
     die();
 }
 
-SOCKETS::INDEX::ENTRY SOCKETS::insert(
+inline SOCKETS::INDEX::ENTRY SOCKETS::insert(
     INDEX::TYPE index_type, KEY key, PIPE::ENTRY value
 ) noexcept {
     INDEX &index = indices[size_t(index_type)];
@@ -3366,7 +3372,7 @@ SOCKETS::INDEX::ENTRY SOCKETS::insert(
     return make_index_entry(key_pipe, val_pipe, old_size, error);
 }
 
-size_t SOCKETS::erase(
+inline size_t SOCKETS::erase(
     INDEX::TYPE index_type, KEY key, PIPE::ENTRY value,
     size_t start_i, size_t iterations
 ) noexcept {
@@ -3432,7 +3438,7 @@ size_t SOCKETS::erase(
     return erased;
 }
 
-size_t SOCKETS::count(INDEX::TYPE index_type, KEY key) const noexcept {
+inline size_t SOCKETS::count(INDEX::TYPE index_type, KEY key) const noexcept {
     size_t count = 0;
     const INDEX &index = indices[size_t(index_type)];
 
@@ -3457,7 +3463,7 @@ size_t SOCKETS::count(INDEX::TYPE index_type, KEY key) const noexcept {
     die();
 }
 
-SOCKETS::ERROR SOCKETS::reindex() noexcept {
+inline SOCKETS::ERROR SOCKETS::reindex() noexcept {
     for (INDEX &index : indices) {
         if (!index.autogrow || index.entries <= index.buckets) {
             continue;
@@ -3521,7 +3527,7 @@ SOCKETS::ERROR SOCKETS::reindex() noexcept {
     return ERROR::NONE;
 }
 
-void SOCKETS::replace(
+inline void SOCKETS::replace(
     PIPE &pipe, size_t index, PIPE::ENTRY value
 ) const noexcept {
     if (index >= pipe.size) {
@@ -3534,7 +3540,7 @@ void SOCKETS::replace(
     std::memcpy(to_ptr(pipe, index), to_ptr(value), size(value.type));
 }
 
-SOCKETS::ERROR SOCKETS::insert(
+inline SOCKETS::ERROR SOCKETS::insert(
     PIPE &pipe, size_t index, PIPE::ENTRY value
 ) noexcept {
     if (index > pipe.size) {
@@ -3560,11 +3566,11 @@ SOCKETS::ERROR SOCKETS::insert(
     return ERROR::NONE;
 }
 
-SOCKETS::ERROR SOCKETS::insert(PIPE &pipe, PIPE::ENTRY value) noexcept {
+inline SOCKETS::ERROR SOCKETS::insert(PIPE &pipe, PIPE::ENTRY value) noexcept {
     return insert(pipe, pipe.size, value);
 }
 
-SOCKETS::ERROR SOCKETS::reserve(PIPE &pipe, size_t capacity) noexcept {
+inline SOCKETS::ERROR SOCKETS::reserve(PIPE &pipe, size_t capacity) noexcept {
     if (pipe.capacity >= capacity) {
         return ERROR::NONE;
     }
@@ -3608,7 +3614,7 @@ SOCKETS::ERROR SOCKETS::reserve(PIPE &pipe, size_t capacity) noexcept {
     return ERROR::NONE;
 }
 
-bool SOCKETS::swap_sessions(JACK *first, JACK *second) noexcept {
+inline bool SOCKETS::swap_sessions(JACK *first, JACK *second) noexcept {
     if (!first || !second) return true;
 
     INDEX::ENTRY first_session_entry{
@@ -3632,7 +3638,7 @@ bool SOCKETS::swap_sessions(JACK *first, JACK *second) noexcept {
     return false;
 }
 
-SOCKETS::ERROR SOCKETS::swap(PIPE &first, PIPE &second) noexcept {
+inline SOCKETS::ERROR SOCKETS::swap(PIPE &first, PIPE &second) noexcept {
     if (first.type == second.type) {
         std::swap(first.capacity, second.capacity);
         std::swap(first.size,     second.size);
@@ -3645,7 +3651,7 @@ SOCKETS::ERROR SOCKETS::swap(PIPE &first, PIPE &second) noexcept {
     die();
 }
 
-SOCKETS::ERROR SOCKETS::copy(const PIPE &src, PIPE &dst) noexcept {
+inline SOCKETS::ERROR SOCKETS::copy(const PIPE &src, PIPE &dst) noexcept {
     if (&src == &dst) {
         return ERROR::NONE;
     }
@@ -3659,7 +3665,7 @@ SOCKETS::ERROR SOCKETS::copy(const PIPE &src, PIPE &dst) noexcept {
     return append(src, dst);
 }
 
-SOCKETS::ERROR SOCKETS::append(const PIPE &src, PIPE &dst) noexcept {
+inline SOCKETS::ERROR SOCKETS::append(const PIPE &src, PIPE &dst) noexcept {
     if (src.type != dst.type || dst.type == PIPE::TYPE::NONE) {
         die();
     }
@@ -3688,7 +3694,7 @@ SOCKETS::ERROR SOCKETS::append(const PIPE &src, PIPE &dst) noexcept {
     return ERROR::NONE;
 }
 
-void SOCKETS::erase(PIPE &pipe, size_t index) const noexcept {
+inline void SOCKETS::erase(PIPE &pipe, size_t index) const noexcept {
     if (index >= pipe.size) {
         die();
     }
@@ -3705,7 +3711,7 @@ void SOCKETS::erase(PIPE &pipe, size_t index) const noexcept {
     --pipe.size;
 }
 
-SOCKETS::PIPE::ENTRY SOCKETS::pop_back(PIPE &pipe) const noexcept {
+inline SOCKETS::PIPE::ENTRY SOCKETS::pop_back(PIPE &pipe) const noexcept {
     size_t size = pipe.size;
 
     if (size) {
@@ -3719,7 +3725,7 @@ SOCKETS::PIPE::ENTRY SOCKETS::pop_back(PIPE &pipe) const noexcept {
     die();
 }
 
-SOCKETS::PIPE::ENTRY SOCKETS::get_last(const PIPE &pipe) const noexcept {
+inline SOCKETS::PIPE::ENTRY SOCKETS::get_last(const PIPE &pipe) const noexcept {
     size_t size = pipe.size;
 
     if (size) {
@@ -3729,7 +3735,7 @@ SOCKETS::PIPE::ENTRY SOCKETS::get_last(const PIPE &pipe) const noexcept {
     die();
 }
 
-SOCKETS::PIPE::ENTRY SOCKETS::get_entry(
+inline SOCKETS::PIPE::ENTRY SOCKETS::get_entry(
     const PIPE &pipe, size_t index
 ) const noexcept {
     if (index < pipe.size) {
@@ -3745,17 +3751,19 @@ SOCKETS::PIPE::ENTRY SOCKETS::get_entry(
     die();
 }
 
-void SOCKETS::set_value(
+inline void SOCKETS::set_value(
     INDEX::ENTRY index_entry, PIPE::ENTRY pipe_entry
 ) noexcept {
     replace(*index_entry.val_pipe, index_entry.index, pipe_entry);
 }
 
-SOCKETS::PIPE::ENTRY SOCKETS::get_value(INDEX::ENTRY entry) const noexcept {
+inline SOCKETS::PIPE::ENTRY SOCKETS::get_value(
+    INDEX::ENTRY entry
+) const noexcept {
     return get_entry(*entry.val_pipe, entry.index);
 }
 
-void SOCKETS::destroy(PIPE &pipe) noexcept {
+inline void SOCKETS::destroy(PIPE &pipe) noexcept {
     if (pipe.memory) {
         recycle(*pipe.memory);
         pipe.memory = nullptr;
@@ -3766,7 +3774,7 @@ void SOCKETS::destroy(PIPE &pipe) noexcept {
     pipe.size = 0;
 }
 
-void SOCKETS::enlist(MEMORY &memory, MEMORY *&list) noexcept {
+inline void SOCKETS::enlist(MEMORY &memory, MEMORY *&list) noexcept {
     if (memory.next || memory.prev) die();
 
     memory.next = list;
@@ -3778,7 +3786,7 @@ void SOCKETS::enlist(MEMORY &memory, MEMORY *&list) noexcept {
     list = &memory;
 }
 
-void SOCKETS::unlist(MEMORY &memory, MEMORY *&list) noexcept {
+inline void SOCKETS::unlist(MEMORY &memory, MEMORY *&list) noexcept {
     if (memory.indexed) {
         const KEY key{make_key(reinterpret_cast<uintptr_t>(memory.data))};
         INDEX::ENTRY entry{ find(INDEX::TYPE::RESOURCE_MEMORY, key) };
@@ -3815,7 +3823,7 @@ void SOCKETS::unlist(MEMORY &memory, MEMORY *&list) noexcept {
     memory.prev = nullptr;
 }
 
-const SOCKETS::MEMORY *SOCKETS::find_memory(
+inline const SOCKETS::MEMORY *SOCKETS::find_memory(
     const void *resource
 ) const noexcept {
     INDEX::ENTRY entry{
@@ -3832,13 +3840,13 @@ const SOCKETS::MEMORY *SOCKETS::find_memory(
     die();
 }
 
-SOCKETS::MEMORY *SOCKETS::find_memory(const void *resource) noexcept {
+inline SOCKETS::MEMORY *SOCKETS::find_memory(const void *resource) noexcept {
     return const_cast<MEMORY *>(
         static_cast<const SOCKETS &>(*this).find_memory(resource)
     );
 }
 
-const SOCKETS::MEMORY &SOCKETS::get_memory(
+inline const SOCKETS::MEMORY &SOCKETS::get_memory(
     const void *resource
 ) const noexcept {
     const MEMORY *const memory = find_memory(resource);
@@ -3850,7 +3858,7 @@ const SOCKETS::MEMORY &SOCKETS::get_memory(
     die();
 }
 
-SOCKETS::MEMORY &SOCKETS::get_memory(const void *resource) noexcept {
+inline SOCKETS::MEMORY &SOCKETS::get_memory(const void *resource) noexcept {
     MEMORY *const memory = find_memory(resource);
 
     if (memory) {
@@ -3860,7 +3868,7 @@ SOCKETS::MEMORY &SOCKETS::get_memory(const void *resource) noexcept {
     die();
 }
 
-SOCKETS::INDEX::TABLE *SOCKETS::allocate_tables(size_t count) noexcept {
+inline SOCKETS::INDEX::TABLE *SOCKETS::allocate_tables(size_t count) noexcept {
     const size_t total_size = sizeof(INDEX::TABLE) * count;
     const auto usage_left{
         std::numeric_limits<decltype(mempool.usage)>::max() - mempool.usage
@@ -3882,7 +3890,9 @@ SOCKETS::INDEX::TABLE *SOCKETS::allocate_tables(size_t count) noexcept {
     return tables;
 }
 
-void SOCKETS::destroy_and_delete(INDEX::TABLE *tables, size_t count) noexcept {
+inline void SOCKETS::destroy_and_delete(
+    INDEX::TABLE *tables, size_t count
+) noexcept {
     for (size_t i=0; i<count; ++i) {
         destroy(tables[i].key);
         destroy(tables[i].value);
@@ -3893,7 +3903,7 @@ void SOCKETS::destroy_and_delete(INDEX::TABLE *tables, size_t count) noexcept {
     mempool.usage -= sizeof(INDEX::TABLE) * count;
 }
 
-SOCKETS::MEMORY *SOCKETS::allocate(
+inline SOCKETS::MEMORY *SOCKETS::allocate(
     const size_t requested_byte_count, size_t align
 ) noexcept {
     align = std::max(alignof(MEMORY), align);
@@ -3993,7 +4003,7 @@ SOCKETS::MEMORY *SOCKETS::allocate(
     return memory;
 }
 
-SOCKETS::MEMORY *SOCKETS::allocate_and_index(
+inline SOCKETS::MEMORY *SOCKETS::allocate_and_index(
     size_t byte_count, size_t alignment, const void *copy
 ) noexcept {
     MEMORY *memory = allocate(byte_count, alignment);
@@ -4025,7 +4035,7 @@ SOCKETS::MEMORY *SOCKETS::allocate_and_index(
     return memory;
 }
 
-void SOCKETS::deallocate(MEMORY &memory) noexcept {
+inline void SOCKETS::deallocate(MEMORY &memory) noexcept {
     if (memory.recycled) {
         MEMORY *&free = mempool.free[clz(memory.size)];
         unlist(memory, free);
@@ -4051,7 +4061,7 @@ void SOCKETS::deallocate(MEMORY &memory) noexcept {
     }
 }
 
-void SOCKETS::recycle(MEMORY &memory) noexcept {
+inline void SOCKETS::recycle(MEMORY &memory) noexcept {
     if (memory.recycled) {
         return;
     }
@@ -4062,13 +4072,13 @@ void SOCKETS::recycle(MEMORY &memory) noexcept {
     memory.recycled = true;
 }
 
-SOCKETS::JACK *SOCKETS::new_jack(const JACK *copy) noexcept {
+inline SOCKETS::JACK *SOCKETS::new_jack(const JACK *copy) noexcept {
     MEMORY *const mem = allocate_and_index(sizeof(JACK), alignof(JACK), copy);
 
     return mem ? reinterpret_cast<JACK *>(mem->data) : nullptr;
 }
 
-SOCKETS::RESULT SOCKETS::call_sigfillset(
+inline SOCKETS::RESULT SOCKETS::call_sigfillset(
     sigset_t *set, const char *file, int line
 ) noexcept {
     int errno_orig = errno;
@@ -4110,7 +4120,7 @@ SOCKETS::RESULT SOCKETS::call_sigfillset(
     );
 }
 
-SOCKETS::RESULT SOCKETS::call_sigemptyset(
+inline SOCKETS::RESULT SOCKETS::call_sigemptyset(
     sigset_t *set, const char *file, int line
 ) noexcept {
     int errno_orig = errno;
@@ -4152,7 +4162,7 @@ SOCKETS::RESULT SOCKETS::call_sigemptyset(
     );
 }
 
-SOCKETS::RESULT SOCKETS::call_epoll_create1(
+inline SOCKETS::RESULT SOCKETS::call_epoll_create1(
     int flags, const char *file, int line
 ) noexcept {
     int errno_orig = errno;
@@ -4205,7 +4215,7 @@ SOCKETS::RESULT SOCKETS::call_epoll_create1(
     );
 }
 
-SOCKETS::RESULT SOCKETS::call_epoll_pwait(
+inline SOCKETS::RESULT SOCKETS::call_epoll_pwait(
     int epfd, struct epoll_event *events, int maxevents,
     int timeout, const sigset_t *sigmask, const char *file, int line
 ) noexcept {
@@ -4256,7 +4266,7 @@ SOCKETS::RESULT SOCKETS::call_epoll_pwait(
     );
 }
 
-SOCKETS::RESULT SOCKETS::call_getsockopt(
+inline SOCKETS::RESULT SOCKETS::call_getsockopt(
     int sockfd, int level, int optname, void *optval, socklen_t *optlen,
     const char *file, int line
 ) noexcept {
@@ -4305,7 +4315,7 @@ SOCKETS::RESULT SOCKETS::call_getsockopt(
     );
 }
 
-SOCKETS::RESULT SOCKETS::call_accept4(
+inline SOCKETS::RESULT SOCKETS::call_accept4(
     int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags,
     const char *file, int line
 ) noexcept {
@@ -4384,7 +4394,7 @@ SOCKETS::RESULT SOCKETS::call_accept4(
     );
 }
 
-SOCKETS::RESULT SOCKETS::call_getnameinfo(
+inline SOCKETS::RESULT SOCKETS::call_getnameinfo(
     const struct sockaddr *addr, socklen_t addrlen, char *host,
     socklen_t hostlen, char *serv, socklen_t servlen, int flags,
     const char *file, int line
@@ -4449,7 +4459,7 @@ SOCKETS::RESULT SOCKETS::call_getnameinfo(
     );
 }
 
-SOCKETS::RESULT SOCKETS::call_shutdown(
+inline SOCKETS::RESULT SOCKETS::call_shutdown(
     int sockfd, int how, const char *file, int line
 ) noexcept {
     int errno_orig = errno;
@@ -4494,7 +4504,7 @@ SOCKETS::RESULT SOCKETS::call_shutdown(
     );
 }
 
-SOCKETS::RESULT SOCKETS::call_listen(
+inline SOCKETS::RESULT SOCKETS::call_listen(
     int sockfd, int backlog, const char *file, int line
 ) noexcept {
     int errno_orig = errno;
@@ -4546,7 +4556,7 @@ SOCKETS::RESULT SOCKETS::call_listen(
     );
 }
 
-SOCKETS::RESULT SOCKETS::call_getsockname(
+inline SOCKETS::RESULT SOCKETS::call_getsockname(
     int sockfd, struct sockaddr *addr, socklen_t *addrlen,
     const char *file, int line
 ) noexcept {
@@ -4597,7 +4607,7 @@ SOCKETS::RESULT SOCKETS::call_getsockname(
     );
 }
 
-SOCKETS::RESULT SOCKETS::call_epoll_ctl(
+inline SOCKETS::RESULT SOCKETS::call_epoll_ctl(
     int epfd, int op, int fd, struct epoll_event *event,
     const char *file, int line
 ) noexcept {
@@ -4655,7 +4665,7 @@ SOCKETS::RESULT SOCKETS::call_epoll_ctl(
     );
 }
 
-SOCKETS::RESULT SOCKETS::call_pthread_sigmask(
+inline SOCKETS::RESULT SOCKETS::call_pthread_sigmask(
     int how, const sigset_t *set, sigset_t *oldset, const char *file, int line
 ) const noexcept {
     int errno_orig = errno;
@@ -4698,7 +4708,7 @@ SOCKETS::RESULT SOCKETS::call_pthread_sigmask(
     );
 }
 
-SOCKETS::RESULT SOCKETS::call_getaddrinfo(
+inline SOCKETS::RESULT SOCKETS::call_getaddrinfo(
     const char *node, const char *service, const struct addrinfo *hints,
     struct addrinfo **res, const char *file, int line
 ) noexcept {
@@ -4768,7 +4778,7 @@ SOCKETS::RESULT SOCKETS::call_getaddrinfo(
     );
 }
 
-SOCKETS::RESULT SOCKETS::call_socket(
+inline SOCKETS::RESULT SOCKETS::call_socket(
     int domain, int type, int protocol, const char *file, int line
 ) noexcept {
     int errno_orig = errno;
@@ -4833,7 +4843,7 @@ SOCKETS::RESULT SOCKETS::call_socket(
     );
 }
 
-SOCKETS::RESULT SOCKETS::call_setsockopt(
+inline SOCKETS::RESULT SOCKETS::call_setsockopt(
     int sockfd, int level, int optname, const void *optval, socklen_t optlen,
     const char *file, int line
 ) noexcept {
@@ -4882,7 +4892,7 @@ SOCKETS::RESULT SOCKETS::call_setsockopt(
     );
 }
 
-SOCKETS::RESULT SOCKETS::call_bind(
+inline SOCKETS::RESULT SOCKETS::call_bind(
     int sockfd, const struct sockaddr *addr, socklen_t addrlen,
     const char *file, int line
 ) noexcept {
@@ -4945,7 +4955,7 @@ SOCKETS::RESULT SOCKETS::call_bind(
     );
 }
 
-SOCKETS::RESULT SOCKETS::call_connect(
+inline SOCKETS::RESULT SOCKETS::call_connect(
     int sockfd, const struct sockaddr *addr, socklen_t addrlen,
     const char *file, int line
 ) noexcept {
@@ -5015,7 +5025,7 @@ SOCKETS::RESULT SOCKETS::call_connect(
     );
 }
 
-SOCKETS::RESULT SOCKETS::call_close(
+inline SOCKETS::RESULT SOCKETS::call_close(
     int fd, const char *file, int line
 ) noexcept {
     int errno_orig = errno;
@@ -5402,7 +5412,9 @@ constexpr struct SOCKETS::QUERY SOCKETS::make_event_query(
     };
 }
 
-bool SOCKETS::is_listed(const addrinfo &info, const addrinfo *list) noexcept {
+inline bool SOCKETS::is_listed(
+    const addrinfo &info, const addrinfo *list
+) noexcept {
     for (const struct addrinfo *next = list; next; next = next->ai_next) {
         if (info.ai_flags != next->ai_flags
         ||  info.ai_family != next->ai_family
@@ -5439,7 +5451,7 @@ constexpr bool SOCKETS::is_descriptor(int d) noexcept {
     return d >= 0;
 }
 
-const char *SOCKETS::to_string(ERROR error) noexcept {
+inline const char *SOCKETS::to_string(ERROR error) noexcept {
     switch (error) {
         case ERROR::NONE:          return "no error";
         case ERROR::BAD_TIMING:    return "bad timing";
@@ -5520,27 +5532,27 @@ constexpr const char *SOCKETS::TAIL(const char* snake, char neck) noexcept {
     return tail;
 }
 
-int SOCKETS::clz(unsigned int x) noexcept {
+inline int SOCKETS::clz(unsigned int x) noexcept {
     return __builtin_clz(x);
 }
 
-int SOCKETS::clz(unsigned long x) noexcept {
+inline int SOCKETS::clz(unsigned long x) noexcept {
     return __builtin_clzl(x);
 }
 
-int SOCKETS::clz(unsigned long long x) noexcept {
+inline int SOCKETS::clz(unsigned long long x) noexcept {
     return __builtin_clzll(x);
 }
 
-unsigned int SOCKETS::next_pow2(unsigned int x) noexcept {
+inline unsigned int SOCKETS::next_pow2(unsigned int x) noexcept {
     return x <= 1 ? 1 : 1 << ((sizeof(x) * BITS_PER_BYTE) - clz(x - 1));
 }
 
-unsigned long SOCKETS::next_pow2(unsigned long x) noexcept {
+inline unsigned long SOCKETS::next_pow2(unsigned long x) noexcept {
     return x <= 1 ? 1 : 1 << ((sizeof(x) * BITS_PER_BYTE) - clz(x - 1));
 }
 
-unsigned long long SOCKETS::next_pow2(unsigned long long x) noexcept {
+inline unsigned long long SOCKETS::next_pow2(unsigned long long x) noexcept {
     return x <= 1 ? 1 : 1 << ((sizeof(x) * BITS_PER_BYTE) - clz(x - 1));
 }
 
