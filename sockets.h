@@ -41,7 +41,7 @@
 
 class SOCKETS final {
     public:
-    static constexpr const char *const VERSION = "1.02";
+    static constexpr const char *const VERSION = "1.03";
 
     enum class ERROR : uint8_t {
         NONE = 0,
