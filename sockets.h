@@ -135,7 +135,7 @@ class SOCKETS final {
     ) noexcept;
     [[nodiscard]] bool idle() const noexcept;
 
-    ERROR next_error(int timeout =-1) noexcept;
+    ERROR next_error(int timeout_milliseconds =-1) noexcept;
     ERROR last_error() noexcept;
     ALERT next_alert() noexcept;
 
