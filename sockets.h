@@ -1304,10 +1304,17 @@ inline const char *SOCKETS::read(size_t sid) noexcept {
         return "";
     }
 
-    const char *c_str = to_char(jack->incoming);
-    jack->incoming.size = 0;
+    if (jack->incoming.capacity > jack->incoming.size) {
+        char *c_str = to_char(jack->incoming);
 
-    return c_str;
+        c_str[jack->incoming.size] = '\0';
+        jack->incoming.size = 0;
+
+        return c_str;
+    }
+    else fuse();
+
+    return "";
 }
 
 inline const char *SOCKETS::peek(size_t sid) noexcept {
@@ -1947,7 +1954,6 @@ inline SOCKETS::ERROR SOCKETS::handle_read(JACK &jack) noexcept {
 
         total_count += count;
         buffer.size += count;
-        buf[count] = '\0'; // Null terminator is needed for reading convenience.
 
         if (buffer.size + padding == buffer.capacity
         &&  buffer.capacity < intake) {
