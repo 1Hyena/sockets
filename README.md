@@ -49,8 +49,9 @@ example programs is provided for the creation of production grade software.
 
 ## Minimalistic Examples #######################################################
 
-The following piece of code is the most minimalistic example of a TCP server
-using the SOCKETS library.
+The following piece of code is the most
+[minimalistic example of a TCP server](examples/src/ex_minserver.cpp) using the
+SOCKETS library.
 
 ```C++
 SOCKETS sockets;
@@ -72,8 +73,8 @@ while (!sockets.next_error()) {
 }
 ```
 
-A really simple TCP client that does not do any error checking is exemplified by
-the following code snippet.
+A really [simple TCP client](examples/src/ex_minclient.cpp) that does not do any
+error checking is exemplified by the following code snippet.
 
 ```C++
 SOCKETS sockets;
