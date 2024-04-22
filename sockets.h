@@ -5470,7 +5470,7 @@ constexpr const char *SOCKETS::to_string(ERROR error) noexcept {
         case ERROR::UNKNOWN:       return "unknown error";
     }
 
-    return "unknown error";
+    return "undefined error";
 }
 
 constexpr SOCKETS::EVENT SOCKETS::next(EVENT event_type) noexcept {
