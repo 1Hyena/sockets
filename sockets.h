@@ -41,7 +41,7 @@
 
 class SOCKETS final {
     public:
-    static constexpr const char *const VERSION = "1.03";
+    static constexpr const char *const VERSION = "1.04";
 
     enum class ERROR : uint8_t {
         NONE = 0,
@@ -66,7 +66,7 @@ class SOCKETS final {
         SYSTEM_ERROR   = ERROR::SYSTEM,
         UNKNOWN_ERROR  = ERROR::UNKNOWN;
 
-    static const char *to_string(ERROR) noexcept;
+    static constexpr const char *to_string(ERROR) noexcept;
 
     struct SESSION {
         size_t id;
@@ -5457,7 +5457,7 @@ constexpr bool SOCKETS::is_descriptor(int d) noexcept {
     return d >= 0;
 }
 
-inline const char *SOCKETS::to_string(ERROR error) noexcept {
+constexpr const char *SOCKETS::to_string(ERROR error) noexcept {
     switch (error) {
         case ERROR::NONE:          return "no error";
         case ERROR::BAD_TIMING:    return "bad timing";
